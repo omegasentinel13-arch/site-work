@@ -1,0 +1,42 @@
+{
+  "name": "site-work",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.5.0 <23"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "node --env-file=.env.local --import tsx --test tests/run-all.test.ts tests/phase1-security.test.ts tests/final-cto-verification.ts tests/user-delete.test.ts tests/navigation-ux.test.ts tests/pdf-batch-a.test.ts tests/pdf-batch-b.test.ts tests/pdf-batch-c.test.ts tests/excel-batch-a.test.ts tests/excel-batch-b.test.ts tests/auth-setup-routing.test.ts tests/theme-persistence.test.ts"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "clsx": "^2.1.1",
+    "exceljs": "^4.4.0",
+    "jose": "^5.9.6",
+    "jspdf": "^2.5.2",
+    "jspdf-autotable": "^3.8.4",
+    "lucide-react": "^0.475.0",
+    "next": "^14.2.24",
+    "nodemailer": "^9.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^3.0.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.17.19",
+    "@types/nodemailer": "^8.0.1",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.2",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}

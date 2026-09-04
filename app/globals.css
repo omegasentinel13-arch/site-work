@@ -1,0 +1,237 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --app-bg: #F1F5F9;
+  --surface: #FFFFFF;
+  --surface-elevated: #FFFFFF;
+  --surface-sub: #F8FAFC;
+  --surface-hover: #F1F5F9;
+  --input-bg: #FFFFFF;
+  --border-subtle: #94A3B8;
+  --border: #111827;
+  --border-strong: #0F172A;
+  --text-primary: #0F172A;
+  --text-secondary: #334155;
+  --text-muted: #64748B;
+  --accent-green: #16A34A;
+  --accent-green-hover: #15803D;
+  --accent-green-surface: #F0FDF4;
+  --accent-green-border: #86EFAC;
+}
+
+.dark {
+  --app-bg: #111214;
+  --surface: #18191C;
+  --surface-elevated: #202225;
+  --surface-sub: #18191C;
+  --surface-hover: #2B2D31;
+  --input-bg: #111214;
+  --border-subtle: #2B2D31;
+  --border: #3A3D42;
+  --border-strong: #4A4D52;
+  --text-primary: #F2F3F5;
+  --text-secondary: #B5BAC1;
+  --text-muted: #949BA4;
+  --accent-green: #1ED760;
+  --accent-green-hover: #1DB954;
+  --accent-green-surface: #0F291B;
+  --accent-green-border: #1A7F3C;
+}
+
+html, body {
+  font-family: var(--font-sans);
+  background-color: #F1F5F9;
+  color: #0F172A;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+  width: 100%;
+}
+
+.dark body {
+  background-color: #111214;
+  color: #F2F3F5;
+}
+
+/* Custom scrollbars for dense data tables & modals */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F3F4F6;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D1D5DB;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9CA3AF;
+}
+
+/* Dark mode scrollbars */
+.dark ::-webkit-scrollbar-track {
+  background: #111214;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #3A3D42;
+  border-radius: 3px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #4A4D52;
+}
+
+/* Custom scrollbar utility for specific scroll containers */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #F8F9FA;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #D1D5DB;
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #9CA3AF;
+}
+
+/* Dark mode custom scrollbar */
+.dark .custom-scrollbar::-webkit-scrollbar-track {
+  background: #18191C;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #3A3D42;
+  border-radius: 3px;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #4A4D52;
+}
+
+/* Text selection styles */
+::selection {
+  background-color: #86EFAC;
+  color: #07130B;
+}
+
+.dark ::selection {
+  background-color: #1ED760;
+  color: #07130B;
+}
+
+/* Hide scrollbar utility for controlled navigation carousels */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Remove number steppers for clean direct numeric inputs */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
+/* Touch manipulation utility to eliminate mobile 300ms tap delay */
+.touch-action-manipulation {
+  touch-action: manipulation;
+}
+
+/* Safe area support for notched phones and modern devices */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.pl-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+.pr-safe {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Sticky table-column visual elevation shadow utility */
+.table-sticky-col-shadow {
+  box-shadow: 3px 0 6px -1px rgba(0, 0, 0, 0.08), 1px 0 2px -1px rgba(0, 0, 0, 0.04);
+}
+.dark .table-sticky-col-shadow {
+  box-shadow: 3px 0 6px -1px rgba(0, 0, 0, 0.35), 1px 0 2px -1px rgba(0, 0, 0, 0.20);
+}
+
+/* 44×44px Minimum Interactive Touch Target Utility */
+.touch-target-44 {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Extended hit area utility for compact icon controls */
+.hit-target-44 {
+  position: relative;
+}
+.hit-target-44::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 44px;
+  min-height: 44px;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+/* Input No-Autozoom Utility (minimum 16px font size on mobile viewports) */
+.input-no-zoom {
+  font-size: 16px;
+}
+@media (min-width: 640px) {
+  .input-no-zoom {
+    font-size: 0.875rem; /* 14px text-sm on desktop */
+  }
+}
+
+/* Global mobile input font-size normalization to eliminate iOS Safari viewport auto-zoom */
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="submit"]):not([type="button"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
