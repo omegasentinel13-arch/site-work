@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSite } from '@/context/site-context';
 import { formatINR } from '@/lib/domain/money';
 import { AttendanceDbRecord } from '@/lib/db/repositories/attendance-repo';
-import { ChevronLeft, ChevronRight, Users } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Users } from 'lucide-react';
 import { PdfExportButton } from '@/components/export/PdfExportButton';
 import { ExcelExportButton } from '@/components/export/ExcelExportButton';
 
@@ -123,15 +123,15 @@ export default function RoleReportPage() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 w-full md:w-auto min-w-0">
           {/* Role Picker with 44px min touch target and input-no-zoom */}
-          <div className="flex items-center space-x-2 bg-slate-50 dark:bg-[#111214] border border-slate-900 dark:border-[#3A3D42] rounded-lg px-3 py-1 min-h-[44px]">
-            <Users className="w-4 h-4 text-slate-500 dark:text-[#949BA4] shrink-0" />
+          <div className="relative flex items-center bg-slate-50 dark:bg-[#111214] border border-slate-900 dark:border-[#3A3D42] rounded-lg px-3 py-1 min-h-[44px] w-full sm:w-auto sm:max-w-[260px] min-w-0 max-w-full">
+            <Users className="w-4 h-4 text-slate-500 dark:text-[#949BA4] shrink-0 mr-2" />
             <select
               value={selectedRoleId}
               onChange={(e) => setSelectedRoleId(e.target.value)}
               aria-label="Select role for report"
-              className="bg-transparent text-sm font-bold text-[#0F172A] dark:text-[#F2F3F5] focus:outline-none cursor-pointer min-h-[40px] input-no-zoom touch-action-manipulation"
+              className="w-full min-w-0 max-w-full bg-transparent text-sm font-bold text-[#0F172A] dark:text-[#F2F3F5] focus:outline-none cursor-pointer min-h-[40px] appearance-none pr-7 truncate input-no-zoom touch-action-manipulation"
             >
               <option value="ALL" className="dark:bg-[#18191C] dark:text-[#F2F3F5]">All Roles (All Workers)</option>
               {roles.map((r) => (
@@ -140,6 +140,7 @@ export default function RoleReportPage() {
                 </option>
               ))}
             </select>
+            <ChevronDown className="w-4 h-4 text-slate-500 dark:text-[#949BA4] absolute right-3 pointer-events-none shrink-0" />
           </div>
 
           {/* Month Navigation with explicit 44x44 touch targets */}
