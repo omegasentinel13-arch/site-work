@@ -29,9 +29,9 @@
   --surface-sub: #18191C;
   --surface-hover: #2B2D31;
   --input-bg: #111214;
-  --border-subtle: #2B2D31;
-  --border: #3A3D42;
-  --border-strong: #4A4D52;
+  --border-subtle: rgba(255, 255, 255, 0.35);
+  --border: rgba(255, 255, 255, 0.85);
+  --border-strong: #FFFFFF;
   --text-primary: #F2F3F5;
   --text-secondary: #B5BAC1;
   --text-muted: #949BA4;
@@ -39,6 +39,13 @@
   --accent-green-hover: #1DB954;
   --accent-green-surface: #0F291B;
   --accent-green-border: #1A7F3C;
+}
+
+/* Crisp WHITE / near-WHITE borders for Dark Theme */
+.dark .dark\:border-\[\#3A3D42\],
+.dark .dark\:border-\[\#4A4D52\],
+.dark .dark\:border-slate-800 {
+  border-color: rgba(255, 255, 255, 0.85) !important;
 }
 
 html, body {

@@ -234,15 +234,15 @@ export default function CategoryReportPage() {
           <span className="text-[10px] sm:text-xs font-bold text-slate-400 dark:text-[#949BA4] uppercase tracking-wider block">
             Total Worker-Days
           </span>
-          <span className="text-lg sm:text-xl lg:text-2xl font-black text-emerald-400 dark:text-[#1ED760] block mt-0.5">
+          <span className="text-lg sm:text-xl lg:text-2xl font-black text-amber-400 dark:text-[#1ED760] block mt-0.5">
             {totalWorkerDays}
           </span>
         </div>
         <div className="p-1">
-          <span className="text-[10px] sm:text-xs font-bold text-emerald-400 dark:text-[#1ED760] uppercase tracking-wider block">
+          <span className="text-[10px] sm:text-xs font-bold text-amber-400 dark:text-[#949BA4] uppercase tracking-wider block">
             Category Total Cost
           </span>
-          <span className="text-lg sm:text-xl lg:text-2xl font-black text-emerald-400 dark:text-[#1ED760] block truncate mt-0.5" title={formatINR(totalCostPaise)}>
+          <span className="text-lg sm:text-xl lg:text-2xl font-black text-amber-400 dark:text-[#1ED760] block truncate mt-0.5" title={formatINR(totalCostPaise)}>
             {formatINR(totalCostPaise)}
           </span>
         </div>

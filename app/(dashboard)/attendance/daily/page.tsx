@@ -283,49 +283,49 @@ export default function DailyAttendancePage() {
       )}
 
       {/* Daily Summary Stat Box */}
-      <div className="bg-white dark:bg-[#202225] text-[#0F172A] dark:text-[#F2F3F5] rounded-xl p-4 sm:p-5 shadow-sm border border-slate-900 dark:border-[#4A4D52]">
+      <div className="bg-slate-900 dark:bg-[#202225] text-white dark:text-[#F2F3F5] rounded-xl p-4 sm:p-5 shadow-sm border border-slate-900 dark:border-[#4A4D52]">
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 items-center">
           <div>
-            <span className="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-[#949BA4] uppercase tracking-wider block truncate">
+            <span className="text-[10px] sm:text-xs font-bold text-slate-400 dark:text-[#949BA4] uppercase tracking-wider block truncate">
               Total Workers
             </span>
-            <span className="text-xl sm:text-2xl font-black text-[#0F172A] dark:text-[#F2F3F5] block mt-0.5">
+            <span className="text-xl sm:text-2xl font-black text-white dark:text-[#F2F3F5] block mt-0.5">
               {calculatedSummary.totalWorkers}
             </span>
           </div>
 
           <div>
-            <span className="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-[#949BA4] uppercase tracking-wider block truncate">
+            <span className="text-[10px] sm:text-xs font-bold text-slate-400 dark:text-[#949BA4] uppercase tracking-wider block truncate">
               Full Day
             </span>
-            <span className="text-xl sm:text-2xl font-black text-[#0F172A] dark:text-[#F2F3F5] block mt-0.5">
+            <span className="text-xl sm:text-2xl font-black text-white dark:text-[#F2F3F5] block mt-0.5">
               {calculatedSummary.fullDayCount}
             </span>
           </div>
 
           <div>
-            <span className="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-[#949BA4] uppercase tracking-wider block truncate">
+            <span className="text-[10px] sm:text-xs font-bold text-slate-400 dark:text-[#949BA4] uppercase tracking-wider block truncate">
               Half Day
             </span>
-            <span className="text-xl sm:text-2xl font-black text-[#0F172A] dark:text-[#F2F3F5] block mt-0.5">
+            <span className="text-xl sm:text-2xl font-black text-white dark:text-[#F2F3F5] block mt-0.5">
               {calculatedSummary.halfDayCount}
             </span>
           </div>
 
           <div>
-            <span className="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-[#949BA4] uppercase tracking-wider block truncate">
+            <span className="text-[10px] sm:text-xs font-bold text-slate-400 dark:text-[#949BA4] uppercase tracking-wider block truncate">
               Worker-Days
             </span>
-            <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-[#1ED760] block mt-0.5">
+            <span className="text-xl sm:text-2xl font-black text-amber-400 dark:text-[#1ED760] block mt-0.5">
               {calculatedSummary.workerDays}
             </span>
           </div>
 
-          <div className="col-span-2 sm:col-span-1 border-t sm:border-t-0 sm:border-l border-slate-900 dark:border-[#3A3D42] pt-2.5 sm:pt-0 sm:pl-4">
-            <span className="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-[#949BA4] uppercase tracking-wider block truncate">
+          <div className="col-span-2 sm:col-span-1 border-t sm:border-t-0 sm:border-l border-slate-800 dark:border-[#3A3D42] pt-2.5 sm:pt-0 sm:pl-4">
+            <span className="text-[10px] sm:text-xs font-bold text-amber-400 dark:text-[#949BA4] uppercase tracking-wider block truncate">
               Daily Labour Cost
             </span>
-            <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-[#1ED760] tracking-tight block mt-0.5 break-words">
+            <span className="text-xl sm:text-2xl font-black text-amber-400 dark:text-[#1ED760] tracking-tight block mt-0.5 break-words">
               {formatINR(calculatedSummary.totalLabourCostPaise)}
             </span>
           </div>

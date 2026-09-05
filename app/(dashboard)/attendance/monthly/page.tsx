@@ -291,7 +291,7 @@ export default function MonthlyAttendanceReportPage() {
             <span className="text-[10px] sm:text-xs font-bold text-slate-400 dark:text-[#949BA4] uppercase tracking-wider block">
               Total Worker-Days
             </span>
-            <span className="text-lg sm:text-xl lg:text-2xl font-black text-emerald-400 dark:text-[#1ED760] block mt-0.5">
+            <span className="text-lg sm:text-xl lg:text-2xl font-black text-amber-400 dark:text-[#1ED760] block mt-0.5">
               {monthlyMetrics.totalWorkerDays}
             </span>
           </div>
@@ -306,10 +306,10 @@ export default function MonthlyAttendanceReportPage() {
           </div>
 
           <div className="col-span-2 sm:col-span-1 lg:col-span-1 border-t sm:border-t-0 sm:border-l border-slate-800 dark:border-[#3A3D42] pt-2.5 sm:pt-1 sm:pl-4 p-1">
-            <span className="text-[10px] sm:text-xs font-bold text-emerald-400 dark:text-[#1ED760] uppercase tracking-wider block">
+            <span className="text-[10px] sm:text-xs font-bold text-amber-400 dark:text-[#949BA4] uppercase tracking-wider block">
               Monthly Labour Cost
             </span>
-            <span className="text-lg sm:text-xl lg:text-2xl font-black text-emerald-400 dark:text-[#1ED760] block truncate mt-0.5" title={formatINR(monthlyMetrics.totalCostPaise)}>
+            <span className="text-lg sm:text-xl lg:text-2xl font-black text-amber-400 dark:text-[#1ED760] block truncate mt-0.5" title={formatINR(monthlyMetrics.totalCostPaise)}>
               {formatINR(monthlyMetrics.totalCostPaise)}
             </span>
           </div>

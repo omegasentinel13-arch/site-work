@@ -185,7 +185,7 @@ export function Navigation() {
 
   return (
     <nav 
-      className="bg-white dark:bg-[#18191C] border-b border-slate-900 dark:border-[#3A3D42] sticky top-16 z-30 shadow-sm w-full transition-colors duration-150"
+      className="hidden lg:block bg-white dark:bg-[#18191C] border-b border-slate-900 dark:border-[#3A3D42] sticky top-16 z-30 shadow-sm w-full transition-colors duration-150"
       aria-label="Main Navigation"
     >
       <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-6">

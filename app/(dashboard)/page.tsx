@@ -249,11 +249,11 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="bg-white dark:bg-[#202225] p-3.5 rounded-lg border border-slate-900 dark:border-[#4A4D52]">
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-[#949BA4] uppercase tracking-wider block">
+          <div className="bg-slate-900 dark:bg-[#202225] text-white dark:text-[#F2F3F5] p-3.5 rounded-lg border border-slate-900 dark:border-[#4A4D52]">
+            <span className="text-[11px] font-semibold text-slate-400 dark:text-[#949BA4] uppercase tracking-wider block">
               Today&apos;s Labour Cost
             </span>
-            <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-[#1ED760] tracking-tight block mt-0.5 break-words">
+            <span className="text-xl sm:text-2xl font-black text-amber-400 dark:text-[#1ED760] tracking-tight block mt-0.5 break-words">
               {formatINR(todayStats.costPaise)}
             </span>
           </div>
@@ -370,12 +370,12 @@ export default function DashboardPage() {
             <span className="text-[10px] text-rose-700 dark:text-rose-400 block mt-0.5 truncate">Outflow</span>
           </div>
 
-          <div className="col-span-2 sm:col-span-3 lg:col-span-1 p-3 sm:p-3.5 bg-white dark:bg-[#202225] rounded-lg border border-slate-900 dark:border-[#4A4D52]">
-            <span className="text-[10px] sm:text-xs font-bold text-slate-600 dark:text-[#949BA4] uppercase block truncate">Remaining Balance</span>
-            <span className={`text-base sm:text-xl font-black block mt-0.5 break-words ${financeStats.balancePaise >= 0 ? 'text-emerald-700 dark:text-[#1ED760]' : 'text-rose-600 dark:text-rose-400'}`}>
+          <div className="col-span-2 sm:col-span-3 lg:col-span-1 p-3 sm:p-3.5 bg-slate-900 dark:bg-[#202225] rounded-lg border border-slate-900 dark:border-[#4A4D52] text-white">
+            <span className="text-[10px] sm:text-xs font-bold text-amber-400 dark:text-[#1ED760] uppercase block truncate">Remaining Balance</span>
+            <span className="text-base sm:text-xl font-black text-white dark:text-[#F2F3F5] block mt-0.5 break-words">
               {formatINR(financeStats.balancePaise)}
             </span>
-            <span className="text-[10px] text-slate-500 dark:text-[#949BA4] block mt-0.5 truncate">Actual Cash In Hand</span>
+            <span className="text-[10px] text-slate-400 dark:text-[#949BA4] block mt-0.5 truncate">Actual Cash In Hand</span>
           </div>
         </div>
       </div>

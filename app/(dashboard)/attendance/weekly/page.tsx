@@ -236,36 +236,36 @@ export default function WeeklyAttendanceReportPage() {
       </div>
 
       {/* Grand Weekly Summary Box */}
-      <div className="bg-white dark:bg-[#202225] text-[#0F172A] dark:text-[#F2F3F5] rounded-xl p-3.5 sm:p-5 shadow-sm border border-slate-900 dark:border-[#4A4D52] grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+      <div className="bg-slate-900 dark:bg-[#202225] text-white dark:text-[#F2F3F5] rounded-xl p-3.5 sm:p-5 shadow-sm border border-slate-900 dark:border-[#4A4D52] grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         <div className="min-w-0">
-          <span className="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-[#949BA4] uppercase tracking-wider block truncate">
+          <span className="text-[10px] sm:text-xs font-bold text-slate-400 dark:text-[#949BA4] uppercase tracking-wider block truncate">
             Site
           </span>
-          <span className="text-base sm:text-lg font-black text-[#0F172A] dark:text-[#F2F3F5] truncate block mt-0.5">
+          <span className="text-base sm:text-lg font-black text-white dark:text-[#F2F3F5] truncate block mt-0.5">
             {selectedSite?.name || 'No Site Selected'}
           </span>
         </div>
         <div className="min-w-0">
-          <span className="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-[#949BA4] uppercase tracking-wider block truncate">
+          <span className="text-[10px] sm:text-xs font-bold text-slate-400 dark:text-[#949BA4] uppercase tracking-wider block truncate">
             Week Period
           </span>
-          <span className="text-base sm:text-lg font-black text-[#0F172A] dark:text-[#F2F3F5] block mt-0.5 truncate">
+          <span className="text-base sm:text-lg font-black text-white dark:text-[#F2F3F5] block mt-0.5 truncate">
             {startDateStr.slice(5)} to {endDateStr.slice(5)}
           </span>
         </div>
         <div>
-          <span className="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-[#949BA4] uppercase tracking-wider block truncate">
+          <span className="text-[10px] sm:text-xs font-bold text-slate-400 dark:text-[#949BA4] uppercase tracking-wider block truncate">
             Total Worker-Days
           </span>
-          <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-[#1ED760] block mt-0.5">
+          <span className="text-xl sm:text-2xl font-black text-amber-400 dark:text-[#1ED760] block mt-0.5">
             {grandTotalWorkerDays}
           </span>
         </div>
         <div>
-          <span className="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-[#949BA4] uppercase tracking-wider block truncate">
+          <span className="text-[10px] sm:text-xs font-bold text-amber-400 dark:text-[#949BA4] uppercase tracking-wider block truncate">
             Weekly Labour Cost
           </span>
-          <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-[#1ED760] block mt-0.5 break-words">
+          <span className="text-xl sm:text-2xl font-black text-amber-400 dark:text-[#1ED760] block mt-0.5 break-words">
             {formatINR(grandTotalCostPaise)}
           </span>
         </div>
