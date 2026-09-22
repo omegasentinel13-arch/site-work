@@ -1,5 +1,5 @@
 export type TransactionType = 'CREDIT' | 'DEBIT';
-export type DebitCategory = 'SUPPLIES' | 'SPECIAL_WORKER_TASK';
+export type DebitCategory = 'SUPPLIES' | 'SALARY' | 'SPECIAL_WORKER_TASK';
 
 export interface FinancialTransactionItem {
   id: string;
@@ -10,6 +10,11 @@ export interface FinancialTransactionItem {
   amountPaise: number;
   description: string;
   referenceNote?: string | null;
+  investorId?: string | null;
+  investorName?: string | null;
+  workCategoryId?: string | null;
+  workRoleId?: string | null;
+  attachmentUrl?: string | null;
   createdAt: string;
 }
 
@@ -17,6 +22,7 @@ export interface FinancialSummary {
   openingBalancePaise: number;
   totalCreditPaise: number;
   suppliesDebitPaise: number;
+  salaryDebitPaise: number;
   specialWorkerTaskDebitPaise: number;
   totalDebitPaise: number;
   netCashFlowPaise: number;
@@ -34,6 +40,7 @@ export function calculateFinancialSummary(
 ): FinancialSummary {
   let totalCreditPaise = 0;
   let suppliesDebitPaise = 0;
+  let salaryDebitPaise = 0;
   let specialWorkerTaskDebitPaise = 0;
 
   for (const tx of transactions) {
@@ -43,6 +50,8 @@ export function calculateFinancialSummary(
     } else if (tx.type === 'DEBIT') {
       if (tx.debitCategory === 'SUPPLIES') {
         suppliesDebitPaise += amt;
+      } else if (tx.debitCategory === 'SALARY') {
+        salaryDebitPaise += amt;
       } else if (tx.debitCategory === 'SPECIAL_WORKER_TASK') {
         specialWorkerTaskDebitPaise += amt;
       } else {
@@ -52,7 +61,7 @@ export function calculateFinancialSummary(
     }
   }
 
-  const totalDebitPaise = suppliesDebitPaise + specialWorkerTaskDebitPaise;
+  const totalDebitPaise = suppliesDebitPaise + salaryDebitPaise + specialWorkerTaskDebitPaise;
   const netCashFlowPaise = totalCreditPaise - totalDebitPaise;
   const closingBalancePaise = openingBalancePaise + netCashFlowPaise;
 
@@ -60,6 +69,7 @@ export function calculateFinancialSummary(
     openingBalancePaise,
     totalCreditPaise,
     suppliesDebitPaise,
+    salaryDebitPaise,
     specialWorkerTaskDebitPaise,
     totalDebitPaise,
     netCashFlowPaise,

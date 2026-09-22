@@ -19,6 +19,7 @@ export interface BaseExcelMetadata {
   reportTitle: string;
   periodLabel?: string;
   generatedAt?: string;
+  generatedBy?: string;
   filtersSummary?: string;
 }
 

@@ -5,9 +5,66 @@ import {
   getUserById, 
   updateUsername, 
   updatePassword, 
-  updateRecoveryEmail 
+  updateRecoveryEmail,
+  getUserAssignedSites
 } from '@/lib/db/repositories/user-repo';
 import { logAudit } from '@/lib/audit/logger';
+import { isSuperiorPrime } from '@/lib/auth/authority';
+import { AuditRepository } from '@/lib/db/repositories/audit-repo';
+
+// 0. Get Logged-In User Profile & Personal Activity (Secure session-derived identity)
+export async function GET() {
+  const session = await getSession();
+  if (!session || !session.userId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const user = getUserById(session.userId);
+  if (!user) {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  }
+
+  // Derive authority and site scoping strictly from authenticated session
+  const isSupPrime = isSuperiorPrime(session) || session.authorityTier === 'KING_MAKER';
+  const isGlobalAdmin =
+    isSupPrime ||
+    session.authorityTier === 'CLIENT_PRIME' ||
+    session.authorityTier === 'STANDARD_ADMIN' ||
+    session.role === 'ADMIN';
+
+  const assignedSiteIds = session.assignedSiteIds || getUserAssignedSites(session.userId);
+
+  // Retrieve only the authenticated user's own permitted activity (strictly session.userId)
+  const activityResult = AuditRepository.getLogs(
+    {
+      actor: user.id,
+      pageSize: 10,
+    },
+    {
+      session,
+      isSuperiorPrime: isSupPrime,
+      isGlobalAdmin,
+      assignedSiteIds,
+    }
+  );
+
+  return NextResponse.json({
+    user: {
+      id: user.id,
+      username: user.username,
+      fullName: user.full_name,
+      role: user.role,
+      authorityTier: user.authority_tier,
+      recoveryEmail: user.recovery_email,
+      isActive: Boolean(user.is_active),
+      createdAt: user.created_at,
+      tokenVersion: user.token_version,
+      assignedSiteIds,
+    },
+    activity: activityResult.items || [],
+  });
+}
+
 
 // 1. Change Username
 export async function POST(req: Request) {

@@ -19,6 +19,8 @@ export async function GET() {
       username: user.username,
       fullName: user.full_name,
       role: user.role,
+      authorityTier: (user as any).authority_tier || 'STANDARD',
+      mustChangePassword: (user as any).must_change_password === 1,
       recoveryEmail: user.role === 'ADMIN' ? user.recovery_email : null,
       assignedSiteIds: session.assignedSiteIds,
     },

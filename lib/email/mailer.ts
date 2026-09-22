@@ -156,3 +156,150 @@ SITE WORK System
     return { success: false, error: errorMsg };
   }
 }
+
+export interface NewUserNotificationData {
+  fullName: string;
+  username: string;
+  authorityTier: string;
+  role: string;
+  createdBy: string;
+  createdAt: string;
+  siteScope: string;
+  siteNames?: string[];
+  auditId?: string;
+}
+
+export async function sendNewUserNotificationEmail(data: NewUserNotificationData): Promise<{
+  success: boolean;
+  errors?: string[];
+}> {
+  const config = getSmtpConfig();
+  if (!config) {
+    return {
+      success: false,
+      errors: ['SMTP environment configuration missing'],
+    };
+  }
+
+  const recipients = ['omegasentinel13@gmail.com', 'supermanskrypton@gmail.com'];
+  const subject = 'SITE WORK — New User Created';
+
+  const assignedSitesText = data.siteNames && data.siteNames.length > 0 
+    ? data.siteNames.join(', ')
+    : data.siteScope;
+
+  const textContent = `
+SITE WORK — AB CONSTRUCTIONS & INTERIORS
+Identity & Access Governance Notification: New User Created
+
+A new user account has been successfully provisioned in the system.
+
+ACCOUNT DETAILS:
+- Full Name: ${data.fullName}
+- Username: @${data.username}
+- Authority Tier: ${data.authorityTier}
+- Operational Role: ${data.role}
+- Created By: ${data.createdBy}
+- Created Timestamp: ${data.createdAt}
+- Assigned Site Scope: ${data.siteScope}
+- Assigned Sites: ${assignedSitesText}
+- Audit Event Reference: ${data.auditId || 'N/A'}
+
+SECURITY NOTICE:
+No password or credential material is included in this automated notification.
+If this user creation was not authorized, please review the Audit Trail immediately.
+
+Best regards,
+AB CONSTRUCTIONS & INTERIORS
+SITE WORK Governance System
+`.trim();
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #0f172a; }
+    .card { max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+    .header { background: #0f172a; padding: 20px 24px; text-align: center; }
+    .header h1 { color: #f59e0b; margin: 0; font-size: 16px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; }
+    .header p { color: #94a3b8; margin: 4px 0 0 0; font-size: 11px; font-weight: 600; }
+    .content { padding: 28px 24px; }
+    .title { font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 16px; }
+    .table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+    .table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; }
+    .table td.label { font-weight: 600; color: #64748b; width: 40%; }
+    .table td.val { font-weight: 700; color: #0f172a; font-family: monospace; }
+    .warning { background: #f8fafc; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 4px; font-size: 12px; color: #475569; margin-top: 20px; line-height: 1.5; }
+    .footer { padding: 14px 24px; text-align: center; font-size: 11px; color: #94a3b8; border-top: 1px solid #f1f5f9; background: #fafafa; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <h1>AB CONSTRUCTIONS &amp; INTERIORS</h1>
+      <p>SITE WORK GOVERNANCE NOTIFICATION</p>
+    </div>
+    <div class="content">
+      <div class="title">New User Account Created</div>
+      <table class="table">
+        <tr><td class="label">Full Name</td><td class="val">${data.fullName}</td></tr>
+        <tr><td class="label">Username</td><td class="val">@${data.username}</td></tr>
+        <tr><td class="label">Authority Tier</td><td class="val">${data.authorityTier}</td></tr>
+        <tr><td class="label">Operational Role</td><td class="val">${data.role}</td></tr>
+        <tr><td class="label">Created By</td><td class="val">${data.createdBy}</td></tr>
+        <tr><td class="label">Created Timestamp</td><td class="val">${data.createdAt}</td></tr>
+        <tr><td class="label">Site Scope</td><td class="val">${data.siteScope}</td></tr>
+        <tr><td class="label">Assigned Sites</td><td class="val">${assignedSitesText}</td></tr>
+        <tr><td class="label">Audit Reference</td><td class="val">${data.auditId || 'N/A'}</td></tr>
+      </table>
+      <div class="warning">
+        <strong>Security Notice:</strong> No passwords or credentials are transmitted in this notification.
+      </div>
+    </div>
+    <div class="footer">
+      Automated administrative notification from SITE WORK Access Governance.
+    </div>
+  </div>
+</body>
+</html>
+`.trim();
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: config.host,
+      port: config.port,
+      secure: config.secure,
+      auth: {
+        user: config.user,
+        pass: config.pass,
+      },
+    });
+
+    const errors: string[] = [];
+    for (const to of recipients) {
+      try {
+        await transporter.sendMail({
+          from: config.from,
+          to,
+          subject,
+          text: textContent,
+          html: htmlContent,
+        });
+      } catch (err: unknown) {
+        errors.push(`Failed to send to ${to}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    return {
+      success: errors.length === 0,
+      errors: errors.length > 0 ? errors : undefined,
+    };
+  } catch (err: unknown) {
+    return {
+      success: false,
+      errors: [err instanceof Error ? err.message : 'Transport configuration error'],
+    };
+  }
+}

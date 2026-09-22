@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth/session';
 import { validateSiteAccess, UnauthorizedError, ForbiddenError } from '@/lib/auth/permissions';
-import { getSiteById } from '@/lib/db/repositories/site-repo';
+import { getSiteById, getAllSites } from '@/lib/db/repositories/site-repo';
 import { getDailyAttendance, getAttendanceByDateRange } from '@/lib/db/repositories/attendance-repo';
 import {
   getFinancialTransactions,
@@ -23,6 +23,14 @@ import {
   sanitizeExcelFilename,
   buildContentDispositionHeader,
 } from '@/lib/export/excel';
+import {
+  resolveExportPeriod,
+  getScopeHistoricalDateBounds,
+  collectSiteExportData,
+  collectSystemExportData,
+  generateCompleteSiteExcel,
+  generateCompleteSystemExcel,
+} from '@/lib/export/complete';
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -31,6 +39,11 @@ export async function POST(req: Request) {
     const session = await getSession();
     if (!session) {
       return NextResponse.json({ error: 'Please log in to continue.' }, { status: 401 });
+    }
+
+    // Reject Viewer accounts immediately from export operations
+    if (session.role === 'VIEWER') {
+      return NextResponse.json({ error: 'Export is restricted to Administrators and Site Managers.' }, { status: 403 });
     }
 
     let body: any;
@@ -42,10 +55,14 @@ export async function POST(req: Request) {
 
     const {
       siteId,
+      scope,
       type,
+      reportType,
       date,
       startDate,
       endDate,
+      from,
+      to,
       title,
       monthLabel,
       roleId,
@@ -54,334 +71,392 @@ export async function POST(req: Request) {
       debitCategory,
     } = body;
 
-    // 1. Validate siteId presence & type
-    if (!siteId || typeof siteId !== 'string' || !siteId.trim()) {
-      return NextResponse.json({ error: 'siteId is required' }, { status: 400 });
-    }
-
-    // 2. Validate user site authorization (Throws UnauthorizedError or ForbiddenError)
-    validateSiteAccess(session, siteId, 'READ');
-
-    // 3. Validate site existence
-    const site = getSiteById(siteId);
-    if (!site) {
-      return NextResponse.json({ error: 'Site not found' }, { status: 404 });
-    }
-
-    // 4. Validate report type
-    if (!type || typeof type !== 'string') {
+    const rawType = (type || reportType || '') as string;
+    if (!rawType || typeof rawType !== 'string' || !rawType.trim()) {
       return NextResponse.json({ error: 'type is required' }, { status: 400 });
     }
 
-    // Date validation helper
-    const validateDateParam = (d: unknown, name: string) => {
-      if (d !== undefined && d !== null && (typeof d !== 'string' || !DATE_REGEX.test(d))) {
-        return `Invalid date format for ${name}. Expected YYYY-MM-DD.`;
-      }
-      return null;
-    };
+    const sDate = startDate || from;
+    const eDate = endDate || to;
 
-    const dateErr =
-      validateDateParam(date, 'date') ||
-      validateDateParam(startDate, 'startDate') ||
-      validateDateParam(endDate, 'endDate');
+    // Date format validations
+    if (date && !DATE_REGEX.test(date)) {
+      return NextResponse.json({ error: 'Invalid date format. Expected YYYY-MM-DD.' }, { status: 400 });
+    }
+    if (sDate && !DATE_REGEX.test(sDate)) {
+      return NextResponse.json({ error: 'Invalid startDate format. Expected YYYY-MM-DD.' }, { status: 400 });
+    }
+    if (eDate && !DATE_REGEX.test(eDate)) {
+      return NextResponse.json({ error: 'Invalid endDate format. Expected YYYY-MM-DD.' }, { status: 400 });
+    }
 
-    if (dateErr) {
-      return NextResponse.json({ error: dateErr }, { status: 400 });
+    // Date range ordering validation
+    if (sDate && eDate && sDate > eDate) {
+      return NextResponse.json({ error: 'Start date cannot be after end date' }, { status: 400 });
     }
 
     let excelBuffer: Buffer;
     let filename: string;
 
-    switch (type) {
-      case 'DAILY_ATTENDANCE': {
-        const targetDate = date || new Date().toISOString().split('T')[0];
-        const records = getDailyAttendance(siteId, targetDate);
-        const summary = calculateDailySummary(
-          targetDate,
-          records.map((r) => ({
-            roleId: r.role_id,
-            roleName: r.role_name || '',
-            categoryId: r.category_id || '',
-            categoryName: r.category_name || '',
-            rateInPaise: r.rate_snapshot_paise,
-            fullDayCount: r.full_day_count,
-            halfDayCount: r.half_day_count,
-          }))
-        );
+    const isAllSites =
+      rawType === 'ALL_SITES_CONSOLIDATED' ||
+      rawType === 'SYSTEM_COMPLETE' ||
+      scope === 'ALL_SITES' ||
+      siteId === 'ALL';
 
-        excelBuffer = await generateDailyAttendanceExcel(
-          {
-            siteName: site.name,
-            siteCode: site.code,
-            reportTitle: title || 'Daily Attendance Report',
-            periodLabel: targetDate,
-          },
-          summary
-        );
-        filename = sanitizeExcelFilename(site.name, `Attendance_${targetDate}`);
-        break;
+    if (isAllSites) {
+      // Validate that this report type actually supports ALL_SITES
+      if (rawType !== 'COMPLETE_REPORT' && rawType !== 'ALL_SITES_CONSOLIDATED' && rawType !== 'SYSTEM_COMPLETE') {
+        return NextResponse.json({ error: 'This report type only supports a single site scope.' }, { status: 400 });
       }
 
-      case 'WEEKLY_ATTENDANCE': {
-        if (!startDate || !endDate) {
-          return NextResponse.json(
-            { error: 'startDate and endDate are required for weekly attendance' },
-            { status: 400 }
-          );
+      const isGlobalAdmin =
+        session.role === 'ADMIN' ||
+        session.authorityTier === 'KING_MAKER' ||
+        session.authorityTier === 'SUPERIOR_PRIME';
+
+      const allDbSites = getAllSites();
+      const authorizedSites = isGlobalAdmin
+        ? allDbSites
+        : allDbSites.filter((s) => session.assignedSiteIds?.includes(s.id));
+
+      if (authorizedSites.length === 0) {
+        return NextResponse.json(
+          { error: 'No authorized sites available for consolidated export.' },
+          { status: 403 }
+        );
+      }
+
+      const authorizedSiteIds = isGlobalAdmin ? undefined : authorizedSites.map((s) => s.id);
+      const dateBounds = getScopeHistoricalDateBounds(authorizedSiteIds);
+      const resolvedPeriod = sDate && eDate
+        ? resolveExportPeriod('CUSTOM', sDate, eDate)
+        : resolveExportPeriod('ALL_DATA', undefined, undefined, dateBounds);
+
+      const systemData = collectSystemExportData(resolvedPeriod, authorizedSiteIds);
+      const reportTitle = isGlobalAdmin ? 'All-Sites Consolidated Report' : 'Authorized Sites Consolidated Report';
+      const fileLabel = isGlobalAdmin ? 'Enterprise_System' : 'Consolidated_Sites';
+      const meta = {
+        siteName: isGlobalAdmin ? 'Enterprise System' : 'Authorized Sites',
+        siteCode: isGlobalAdmin ? 'ALL' : 'AUTH',
+        reportTitle,
+        periodLabel: resolvedPeriod.label,
+        generatedBy: session.username,
+        generatedAt: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+      };
+
+      excelBuffer = await generateCompleteSystemExcel(systemData, meta);
+      filename = sanitizeExcelFilename(fileLabel, `complete_${resolvedPeriod.preset}`);
+    } else {
+      // Site-scoped report
+      if (!siteId || typeof siteId !== 'string' || !siteId.trim() || siteId === 'ALL') {
+        return NextResponse.json({ error: 'siteId is required' }, { status: 400 });
+      }
+
+      // Validate site authorization for session (Site Manager must be assigned)
+      validateSiteAccess(session, siteId.trim(), 'READ');
+
+      const site = getSiteById(siteId.trim());
+      if (!site) {
+        return NextResponse.json({ error: 'Site not found' }, { status: 404 });
+      }
+
+      switch (rawType) {
+        case 'COMPLETE_REPORT': {
+          const dateBounds = getScopeHistoricalDateBounds(site.id);
+          const resolvedPeriod = sDate && eDate
+            ? resolveExportPeriod('CUSTOM', sDate, eDate)
+            : resolveExportPeriod('ALL_DATA', undefined, undefined, dateBounds);
+
+          const siteData = collectSiteExportData(site.id, resolvedPeriod);
+          const meta = {
+            siteName: site.name,
+            siteCode: site.code,
+            reportTitle: `Complete Site Report — ${site.name}`,
+            periodLabel: resolvedPeriod.label,
+            generatedBy: session.username,
+            generatedAt: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+          };
+
+          excelBuffer = await generateCompleteSiteExcel(siteData, meta);
+          filename = sanitizeExcelFilename(site.name, `complete_${resolvedPeriod.preset}`);
+          break;
         }
-        const records = getAttendanceByDateRange(siteId, startDate, endDate);
-        excelBuffer = await generateWeeklyAttendanceExcel(
-          {
-            siteName: site.name,
-            siteCode: site.code,
-            reportTitle: title || 'Weekly Attendance Matrix',
-            periodLabel: `${startDate} to ${endDate}`,
-          },
-          { records, startDate, endDate }
-        );
-        filename = sanitizeExcelFilename(site.name, `Weekly_Matrix_${startDate}_to_${endDate}`);
-        break;
-      }
 
-      case 'MONTHLY_COMPREHENSIVE':
-      case 'MONTHLY_ATTENDANCE': {
-        if (!startDate || !endDate) {
-          return NextResponse.json(
-            { error: 'startDate and endDate are required for monthly attendance' },
-            { status: 400 }
+        case 'DAILY_ATTENDANCE': {
+          const targetDate = date || sDate || new Date().toISOString().split('T')[0];
+          const records = getDailyAttendance(site.id, targetDate);
+          const summary = calculateDailySummary(
+            targetDate,
+            records.map((r) => ({
+              roleId: r.role_id,
+              roleName: r.role_name || '',
+              categoryId: r.category_id || '',
+              categoryName: r.category_name || '',
+              rateInPaise: r.rate_snapshot_paise,
+              fullDayCount: r.full_day_count,
+              halfDayCount: r.half_day_count,
+            }))
           );
+
+          excelBuffer = await generateDailyAttendanceExcel(
+            {
+              siteName: site.name,
+              siteCode: site.code,
+              reportTitle: title || 'Daily Attendance Report',
+              periodLabel: targetDate,
+            },
+            summary
+          );
+          filename = sanitizeExcelFilename(site.name, `Attendance_${targetDate}`);
+          break;
         }
-        const records = getAttendanceByDateRange(siteId, startDate, endDate);
-        excelBuffer = await generateMonthlyAttendanceExcel(
-          {
-            siteName: site.name,
-            siteCode: site.code,
-            reportTitle: title || 'Monthly Attendance Report',
-            periodLabel: monthLabel || `${startDate} to ${endDate}`,
-          },
-          { records, monthLabel: monthLabel || `${startDate} to ${endDate}`, startDate, endDate }
-        );
-        filename = sanitizeExcelFilename(
-          site.name,
-          `Monthly_Attendance_${(monthLabel || startDate).replace(/\s+/g, '_')}`
-        );
-        break;
-      }
 
-      case 'FINANCE': {
-        const sDate = startDate || '2000-01-01';
-        const eDate = endDate || '2099-12-31';
-        const txs = getFinancialTransactions(siteId, {
-          startDate: sDate,
-          endDate: eDate,
-          type: transactionType,
-          debitCategory,
-        });
-
-        const openingBalancePaise = getCumulativeBalanceBeforeDate(siteId, sDate);
-        const summary = calculateFinancialSummary(
-          txs.map(mapDbRecordToItem),
-          openingBalancePaise
-        );
-
-        excelBuffer = await generateFinancialExcel(
-          {
-            siteName: site.name,
-            siteCode: site.code,
-            reportTitle: title || 'Financial Transactions Ledger',
-            periodLabel: startDate && endDate ? `${startDate} to ${endDate}` : 'Complete Ledger',
-          },
-          {
-            summary,
-            transactions: txs.map((t) => ({
-              date: t.date,
-              type: t.type,
-              debitCategory: t.debit_category,
-              description: t.description,
-              amountPaise: t.amount_paise,
-              referenceNote: t.reference_note,
-            })),
+        case 'WEEKLY_ATTENDANCE': {
+          if (!sDate || !eDate) {
+            return NextResponse.json({ error: 'startDate and endDate are required for weekly attendance' }, { status: 400 });
           }
-        );
-        filename = sanitizeExcelFilename(
-          site.name,
-          `Finance_${(startDate && endDate ? `${startDate}_to_${endDate}` : 'Ledger').replace(/\s+/g, '_')}`
-        );
-        break;
-      }
-
-      case 'MONTHLY_FINANCE': {
-        if (!startDate || !endDate) {
-          return NextResponse.json(
-            { error: 'startDate and endDate are required for monthly finance' },
-            { status: 400 }
+          const records = getAttendanceByDateRange(site.id, sDate, eDate);
+          excelBuffer = await generateWeeklyAttendanceExcel(
+            {
+              siteName: site.name,
+              siteCode: site.code,
+              reportTitle: title || 'Weekly Attendance Matrix',
+              periodLabel: `${sDate} to ${eDate}`,
+            },
+            { records, startDate: sDate, endDate: eDate }
           );
+          filename = sanitizeExcelFilename(site.name, `Weekly_Matrix_${sDate}_to_${eDate}`);
+          break;
         }
-        const txs = getFinancialTransactions(siteId, { startDate, endDate });
-        const openingBalancePaise = getCumulativeBalanceBeforeDate(siteId, startDate);
-        const summary = calculateFinancialSummary(
-          txs.map(mapDbRecordToItem),
-          openingBalancePaise
-        );
 
-        excelBuffer = await generateMonthlyFinancialExcel(
-          {
-            siteName: site.name,
-            siteCode: site.code,
-            reportTitle: title || 'Monthly Financial Statement',
-            periodLabel: monthLabel || `${startDate} to ${endDate}`,
-          },
-          {
-            summary,
-            transactions: txs.map((t) => ({
-              date: t.date,
-              type: t.type,
-              debitCategory: t.debit_category,
-              description: t.description,
-              amountPaise: t.amount_paise,
-              referenceNote: t.reference_note,
-            })),
+        case 'MONTHLY_COMPREHENSIVE':
+        case 'MONTHLY_ATTENDANCE': {
+          if (!sDate || !eDate) {
+            return NextResponse.json({ error: 'startDate and endDate are required for monthly attendance' }, { status: 400 });
           }
-        );
-        filename = sanitizeExcelFilename(
-          site.name,
-          `Monthly_Finance_${(monthLabel || startDate).replace(/\s+/g, '_')}`
-        );
-        break;
-      }
-
-      case 'ROLE_REPORT': {
-        if (!roleId) {
-          return NextResponse.json({ error: 'roleId is required for role report' }, { status: 400 });
-        }
-        if (!startDate || !endDate) {
-          return NextResponse.json(
-            { error: 'startDate and endDate are required for role report' },
-            { status: 400 }
+          const records = getAttendanceByDateRange(site.id, sDate, eDate);
+          excelBuffer = await generateMonthlyAttendanceExcel(
+            {
+              siteName: site.name,
+              siteCode: site.code,
+              reportTitle: title || 'Monthly Attendance Report',
+              periodLabel: monthLabel || `${sDate} to ${eDate}`,
+            },
+            { records, monthLabel: monthLabel || `${sDate} to ${eDate}`, startDate: sDate, endDate: eDate }
           );
+          filename = sanitizeExcelFilename(site.name, `Monthly_Attendance_${(monthLabel || sDate).replace(/\s+/g, '_')}`);
+          break;
         }
-        const isAll = roleId === 'ALL';
-        const records = isAll
-          ? getAttendanceByDateRange(siteId, startDate, endDate)
-          : getAttendanceByDateRange(siteId, startDate, endDate, undefined, roleId);
 
-        let roleName = isAll ? 'All Roles (All Workers)' : 'Role';
-        let categoryName = isAll ? 'All Categories' : 'General';
-        if (!isAll) {
-          if (records.length > 0 && records[0].role_name) {
-            roleName = records[0].role_name;
-            categoryName = records[0].category_name || 'General';
-          } else {
-            const allRoles = getAllRoles(siteId);
-            const matched = allRoles.find((r) => r.id === roleId);
-            if (matched) {
-              roleName = matched.name;
-              categoryName = matched.category_name || 'General';
+        case 'TRANSACTIONS':
+        case 'FINANCE': {
+          const sDateParsed = sDate || '2000-01-01';
+          const eDateParsed = eDate || '2099-12-31';
+          const txs = getFinancialTransactions(site.id, {
+            startDate: sDateParsed,
+            endDate: eDateParsed,
+            type: transactionType,
+            debitCategory,
+          });
+
+          const openingBalancePaise = sDate ? getCumulativeBalanceBeforeDate(site.id, sDate) : 0;
+          const summary = calculateFinancialSummary(
+            txs.map(mapDbRecordToItem),
+            openingBalancePaise
+          );
+
+          excelBuffer = await generateFinancialExcel(
+            {
+              siteName: site.name,
+              siteCode: site.code,
+              reportTitle: title || 'Financial Transactions Ledger',
+              periodLabel: sDate && eDate ? `${sDate} to ${eDate}` : 'Complete Ledger',
+            },
+            {
+              summary,
+              transactions: txs.map((t) => ({
+                date: t.date,
+                type: t.type,
+                debitCategory: t.debit_category,
+                description: t.description,
+                amountPaise: t.amount_paise,
+                referenceNote: t.reference_note,
+              })),
+            }
+          );
+          filename = sanitizeExcelFilename(
+            site.name,
+            `Finance_${(sDate && eDate ? `${sDate}_to_${eDate}` : 'Ledger').replace(/\s+/g, '_')}`
+          );
+          break;
+        }
+
+        case 'MASTER_LEDGER':
+        case 'MONTHLY_FINANCE': {
+          if (!sDate || !eDate) {
+            return NextResponse.json({ error: 'startDate and endDate are required for monthly finance' }, { status: 400 });
+          }
+          const txs = getFinancialTransactions(site.id, { startDate: sDate, endDate: eDate });
+          const openingBalancePaise = getCumulativeBalanceBeforeDate(site.id, sDate);
+          const summary = calculateFinancialSummary(
+            txs.map(mapDbRecordToItem),
+            openingBalancePaise
+          );
+
+          excelBuffer = await generateMonthlyFinancialExcel(
+            {
+              siteName: site.name,
+              siteCode: site.code,
+              reportTitle: title || 'Monthly Financial Statement',
+              periodLabel: monthLabel || `${sDate} to ${eDate}`,
+            },
+            {
+              summary,
+              transactions: txs.map((t) => ({
+                date: t.date,
+                type: t.type,
+                debitCategory: t.debit_category,
+                description: t.description,
+                amountPaise: t.amount_paise,
+                referenceNote: t.reference_note,
+              })),
+            }
+          );
+          filename = sanitizeExcelFilename(
+            site.name,
+            `Monthly_Finance_${(monthLabel || sDate).replace(/\s+/g, '_')}`
+          );
+          break;
+        }
+
+        case 'LABOUR_WORKER':
+        case 'ROLE_REPORT': {
+          const isLabourWorker = rawType === 'LABOUR_WORKER';
+          const effectiveRoleId = isLabourWorker ? 'ALL' : roleId;
+
+          if (!effectiveRoleId) {
+            return NextResponse.json({ error: 'roleId is required for role report' }, { status: 400 });
+          }
+          if (!sDate || !eDate) {
+            return NextResponse.json({ error: 'startDate and endDate are required for role report' }, { status: 400 });
+          }
+          const isAll = effectiveRoleId === 'ALL';
+          const records = isAll
+            ? getAttendanceByDateRange(site.id, sDate, eDate)
+            : getAttendanceByDateRange(site.id, sDate, eDate, undefined, effectiveRoleId);
+
+          let roleName = isAll ? 'All Roles (All Workers)' : 'Role';
+          let categoryName = isAll ? 'All Categories' : 'General';
+          if (!isAll) {
+            if (records.length > 0 && records[0].role_name) {
+              roleName = records[0].role_name;
+              categoryName = records[0].category_name || 'General';
+            } else {
+              const allRoles = getAllRoles(site.id);
+              const matched = allRoles.find((r) => r.id === effectiveRoleId);
+              if (matched) {
+                roleName = matched.name;
+                categoryName = matched.category_name || 'General';
+              }
             }
           }
-        }
 
-        excelBuffer = await generateRoleReportExcel(
-          {
-            siteName: site.name,
-            siteCode: site.code,
-            reportTitle: isAll
-              ? title || 'All Workforce Roles & Deployment'
-              : title || 'Role Breakdown Report',
-            periodLabel: monthLabel || `${startDate} to ${endDate}`,
-            filtersSummary: isAll ? 'All Roles & Categories' : `Role: ${roleName}`,
-          },
-          { roleName, categoryName, records, isAllRoles: isAll }
-        );
-        filename = sanitizeExcelFilename(
-          site.name,
-          `Role_${roleName.replace(/\s+/g, '_')}_${(monthLabel || startDate).replace(/\s+/g, '_')}`
-        );
-        break;
-      }
-
-      case 'CATEGORY_REPORT': {
-        if (!categoryId) {
-          return NextResponse.json(
-            { error: 'categoryId is required for category report' },
-            { status: 400 }
+          excelBuffer = await generateRoleReportExcel(
+            {
+              siteName: site.name,
+              siteCode: site.code,
+              reportTitle: isAll
+                ? title || 'All Workforce Roles & Deployment'
+                : title || 'Role Breakdown Report',
+              periodLabel: monthLabel || `${sDate} to ${eDate}`,
+              filtersSummary: isAll ? 'All Roles & Categories' : `Role: ${roleName}`,
+            },
+            { roleName, categoryName, records, isAllRoles: isAll }
           );
-        }
-        if (!startDate || !endDate) {
-          return NextResponse.json(
-            { error: 'startDate and endDate are required for category report' },
-            { status: 400 }
+          filename = sanitizeExcelFilename(
+            site.name,
+            `Role_${roleName.replace(/\s+/g, '_')}_${(monthLabel || sDate).replace(/\s+/g, '_')}`
           );
+          break;
         }
-        const records = getAttendanceByDateRange(siteId, startDate, endDate, categoryId);
 
-        let categoryName = 'Category';
-        if (records.length > 0 && records[0].category_name) {
-          categoryName = records[0].category_name;
-        } else {
-          const allCats = getAllCategories();
-          const matched = allCats.find((c) => c.id === categoryId);
-          if (matched) {
-            categoryName = matched.name;
+        case 'CATEGORY_REPORT': {
+          if (!sDate || !eDate) {
+            return NextResponse.json({ error: 'startDate and endDate are required for category report' }, { status: 400 });
           }
-        }
+          const isAllCategories = !categoryId || categoryId === 'ALL';
+          const records = isAllCategories
+            ? getAttendanceByDateRange(site.id, sDate, eDate)
+            : getAttendanceByDateRange(site.id, sDate, eDate, categoryId);
 
-        excelBuffer = await generateCategoryReportExcel(
-          {
-            siteName: site.name,
-            siteCode: site.code,
-            reportTitle: title || 'Category Breakdown Report',
-            periodLabel: monthLabel || `${startDate} to ${endDate}`,
-            filtersSummary: `Category: ${categoryName}`,
-          },
-          { categoryName, records }
-        );
-        filename = sanitizeExcelFilename(
-          site.name,
-          `Category_${categoryName.replace(/\s+/g, '_')}_${(monthLabel || startDate).replace(/\s+/g, '_')}`
-        );
-        break;
-      }
-
-      case 'SITE_REPORT': {
-        if (!startDate || !endDate) {
-          return NextResponse.json(
-            { error: 'startDate and endDate are required for site report' },
-            { status: 400 }
-          );
-        }
-        const attendanceRecords = getAttendanceByDateRange(siteId, startDate, endDate);
-        const finTxs = getFinancialTransactions(siteId, { startDate, endDate });
-        const openingBalancePaise = getCumulativeBalanceBeforeDate(siteId, startDate);
-        const financialSummary = calculateFinancialSummary(
-          finTxs.map(mapDbRecordToItem),
-          openingBalancePaise
-        );
-
-        excelBuffer = await generateSiteReportExcel(
-          {
-            siteName: site.name,
-            siteCode: site.code,
-            reportTitle: title || 'Site Performance Report',
-            periodLabel: monthLabel || `${startDate} to ${endDate}`,
-          },
-          {
-            siteName: site.name,
-            siteLocation: site.location,
-            attendanceRecords,
-            financialSummary,
+          let categoryName = isAllCategories ? 'All Categories' : 'Category';
+          if (!isAllCategories) {
+            if (records.length > 0 && records[0].category_name) {
+              categoryName = records[0].category_name;
+            } else {
+              const allCats = getAllCategories();
+              const matched = allCats.find((c) => c.id === categoryId);
+              if (matched) {
+                categoryName = matched.name;
+              }
+            }
           }
-        );
-        filename = sanitizeExcelFilename(
-          site.name,
-          `Site_Performance_${(monthLabel || startDate).replace(/\s+/g, '_')}`
-        );
-        break;
-      }
 
-      default:
-        return NextResponse.json({ error: `Unknown export type: ${type}` }, { status: 400 });
+          excelBuffer = await generateCategoryReportExcel(
+            {
+              siteName: site.name,
+              siteCode: site.code,
+              reportTitle: title || (isAllCategories ? 'All Categories Deployment' : 'Category Breakdown Report'),
+              periodLabel: monthLabel || `${sDate} to ${eDate}`,
+              filtersSummary: `Category: ${categoryName}`,
+            },
+            { categoryName, records }
+          );
+          filename = sanitizeExcelFilename(
+            site.name,
+            `Category_${categoryName.replace(/\s+/g, '_')}_${(monthLabel || sDate).replace(/\s+/g, '_')}`
+          );
+          break;
+        }
+
+        case 'SITE_PERFORMANCE':
+        case 'SITE_REPORT': {
+          if (!sDate || !eDate) {
+            return NextResponse.json({ error: 'startDate and endDate are required for site report' }, { status: 400 });
+          }
+          const attendanceRecords = getAttendanceByDateRange(site.id, sDate, eDate);
+          const finTxs = getFinancialTransactions(site.id, { startDate: sDate, endDate: eDate });
+          const openingBalancePaise = getCumulativeBalanceBeforeDate(site.id, sDate);
+          const financialSummary = calculateFinancialSummary(
+            finTxs.map(mapDbRecordToItem),
+            openingBalancePaise
+          );
+
+          excelBuffer = await generateSiteReportExcel(
+            {
+              siteName: site.name,
+              siteCode: site.code,
+              reportTitle: title || 'Site Performance Report',
+              periodLabel: monthLabel || `${sDate} to ${eDate}`,
+            },
+            {
+              siteName: site.name,
+              siteLocation: site.location,
+              attendanceRecords,
+              financialSummary,
+            }
+          );
+          filename = sanitizeExcelFilename(
+            site.name,
+            `Site_Performance_${(monthLabel || sDate).replace(/\s+/g, '_')}`
+          );
+          break;
+        }
+
+        default:
+          return NextResponse.json({ error: `Unknown export type: ${rawType}` }, { status: 400 });
+      }
     }
 
     return new Response(new Uint8Array(excelBuffer), {

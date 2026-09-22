@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth/session';
 import { validateSiteAccess } from '@/lib/auth/permissions';
+import { canAccess } from '@/lib/permissions/evaluator';
 import { getDailyAttendance, saveDailyAttendance } from '@/lib/db/repositories/attendance-repo';
 import { getAllRoles } from '@/lib/db/repositories/role-repo';
 import { calculateDailySummary } from '@/lib/domain/attendance-engine';
@@ -17,21 +18,40 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'siteId and date are required' }, { status: 400 });
     }
 
-    validateSiteAccess(session, siteId, 'READ');
+    const access = canAccess({
+      session,
+      page: 'PAGE_ATTENDANCE_DAILY',
+      action: 'VIEW',
+      siteId,
+      resourceSiteId: siteId,
+    });
+    if (!access.allowed) {
+      return NextResponse.json({ error: access.reason }, { status: access.ruleSource === 'AUTHENTICATION_REQUIRED' ? 401 : 403 });
+    }
 
     const records = getDailyAttendance(siteId, date);
     const allActiveRoles = getAllRoles(siteId, false);
 
     // Merge active roles with existing records so form displays every available role
     const recordMap = new Map(records.map(r => [r.role_id, r]));
+    const activeRoleIds = new Set(allActiveRoles.map(r => r.id));
 
-    const mergedRoles = allActiveRoles.map(r => {
+    // Find any historical roles that have records on this date but are currently inactive
+    const allRolesWithInactive = getAllRoles(siteId, true);
+    const historicalInactiveRoles = allRolesWithInactive.filter(
+      r => recordMap.has(r.id) && !activeRoleIds.has(r.id)
+    );
+
+    const combinedRoles = [...allActiveRoles, ...historicalInactiveRoles];
+
+    const mergedRoles = combinedRoles.map(r => {
       const existing = recordMap.get(r.id);
       return {
         roleId: r.id,
         roleName: r.name,
         categoryId: r.category_id,
         categoryName: r.category_name || '',
+        isActive: r.is_active === 1,
         // If existing record exists, use its historical rate snapshot; otherwise use current effective rate
         rateInPaise: existing ? existing.rate_snapshot_paise : (r.effective_rate_paise || r.default_rate_paise),
         fullDayCount: existing ? existing.full_day_count : 0,
@@ -70,7 +90,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid attendance payload' }, { status: 400 });
     }
 
-    validateSiteAccess(session, siteId, 'WRITE');
+    const existingRecords = getDailyAttendance(siteId, date);
+    const hasExisting = existingRecords && existingRecords.length > 0;
+    const requiredAction = hasExisting ? 'EDIT' : 'CREATE';
+
+    const access = canAccess({
+      session,
+      page: 'PAGE_ATTENDANCE_DAILY',
+      action: requiredAction,
+      siteId,
+      resourceSiteId: siteId,
+    });
+    if (!access.allowed) {
+      return NextResponse.json({ error: access.reason }, { status: access.ruleSource === 'AUTHENTICATION_REQUIRED' ? 401 : 403 });
+    }
 
     saveDailyAttendance(
       siteId,

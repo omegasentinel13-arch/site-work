@@ -1,28 +1,53 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth/session';
-import { validateSiteAccess, requireAdmin } from '@/lib/auth/permissions';
-import { getAllSites, createSite } from '@/lib/db/repositories/site-repo';
+import { requireAdmin } from '@/lib/auth/permissions';
+import { canAccess } from '@/lib/permissions/evaluator';
+import { getAllSites, createSite, getSitesKPISummary, SiteFilter } from '@/lib/db/repositories/site-repo';
 import { logAudit } from '@/lib/audit/logger';
 
 export async function GET(req: Request) {
   const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const access = canAccess({
+    session,
+    page: 'PAGE_SETUP_SITES',
+    action: 'VIEW',
+  });
+  if (!access.allowed) {
+    return NextResponse.json({ error: access.reason }, { status: access.ruleSource === 'AUTHENTICATION_REQUIRED' ? 401 : 403 });
   }
 
   const { searchParams } = new URL(req.url);
-  const includeArchived = searchParams.get('includeArchived') === 'true';
+  const statusParam = searchParams.get('status');
+  const includeArchivedParam = searchParams.get('includeArchived') === 'true';
 
-  const userAllowedSites = session.role === 'ADMIN' ? null : session.assignedSiteIds;
-  const sites = getAllSites(includeArchived, userAllowedSites);
+  let filter: SiteFilter = 'ACTIVE';
+  if (statusParam) {
+    const upper = statusParam.toUpperCase();
+    if (upper === 'ALL' || upper === 'ACTIVE' || upper === 'ARCHIVED' || upper === 'RECYCLE_BIN') {
+      filter = upper as SiteFilter;
+    }
+  } else if (includeArchivedParam) {
+    filter = 'ALL';
+  }
 
-  return NextResponse.json({ sites });
+  const userAllowedSites = session!.role === 'ADMIN' ? null : session!.assignedSiteIds;
+  const sites = getAllSites(filter, userAllowedSites);
+  const kpiSummary = session!.role === 'ADMIN' ? getSitesKPISummary() : null;
+
+  return NextResponse.json({ sites, kpiSummary });
 }
 
 export async function POST(req: Request) {
   const session = await getSession();
   try {
-    requireAdmin(session);
+    const access = canAccess({
+      session,
+      page: 'PAGE_SETUP_SITES',
+      action: 'CREATE',
+    });
+    if (!access.allowed) {
+      return NextResponse.json({ error: access.reason }, { status: access.ruleSource === 'AUTHENTICATION_REQUIRED' ? 401 : 403 });
+    }
     const body = await req.json();
     const { name, code, location } = body;
 

@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --env-file=.env.local --import tsx --test tests/run-all.test.ts tests/phase1-security.test.ts tests/final-cto-verification.ts tests/user-delete.test.ts tests/navigation-ux.test.ts tests/pdf-batch-a.test.ts tests/pdf-batch-b.test.ts tests/pdf-batch-c.test.ts tests/excel-batch-a.test.ts tests/excel-batch-b.test.ts tests/auth-setup-routing.test.ts tests/theme-persistence.test.ts"
+    "test": "node --env-file=.env.local --import tsx --test tests/run-all.test.ts tests/phase1-security.test.ts tests/final-cto-verification.ts tests/user-delete.test.ts tests/navigation-ux.test.ts tests/pdf-batch-a.test.ts tests/pdf-batch-b.test.ts tests/pdf-batch-c.test.ts tests/excel-batch-a.test.ts tests/excel-batch-b.test.ts tests/auth-setup-routing.test.ts tests/theme-persistence.test.ts tests/complete-export.test.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

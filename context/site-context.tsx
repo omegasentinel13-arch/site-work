@@ -17,6 +17,7 @@ export interface User {
   username: string;
   fullName: string;
   role: 'ADMIN' | 'SITE_MANAGER' | 'VIEWER';
+  authorityTier?: string;
   recoveryEmail?: string | null;
   assignedSiteIds: string[];
 }
@@ -33,7 +34,7 @@ interface SiteContextType {
   logout: () => Promise<void>;
 }
 
-const SiteContext = createContext<SiteContextType | undefined>(undefined);
+export const SiteContext = createContext<SiteContextType | undefined>(undefined);
 
 export function SiteProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();

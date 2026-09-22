@@ -6,6 +6,7 @@ import { formatINR } from '@/lib/domain/money';
 import { AttendanceDbRecord } from '@/lib/db/repositories/attendance-repo';
 import { CategoryRecord } from '@/lib/db/repositories/role-repo';
 import { ChevronLeft, ChevronRight, Layers } from 'lucide-react';
+import Link from 'next/link';
 import { PdfExportButton } from '@/components/export/PdfExportButton';
 import { ExcelExportButton } from '@/components/export/ExcelExportButton';
 
@@ -125,6 +126,28 @@ export default function CategoryReportPage() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
+      {/* Legacy Redirection & Merged Experience Banner */}
+      <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-sm">
+        <div className="flex items-center space-x-2.5">
+          <Layers className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+          <div>
+            <span className="text-xs font-black text-amber-900 dark:text-amber-200 uppercase tracking-wide block">
+              Category Breakdown Merged
+            </span>
+            <span className="text-xs text-amber-800 dark:text-amber-300 font-medium">
+              Category analytics have been unified into the new <strong>Analytics</strong> suite.
+            </span>
+          </div>
+        </div>
+        <Link
+          href={`/reports/role?categoryId=${selectedCategoryId}`}
+          className="inline-flex items-center justify-center space-x-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 dark:bg-[#1ED760] dark:hover:bg-[#1DB954] text-white dark:text-[#07130B] text-xs font-black rounded-lg transition-colors shrink-0 shadow"
+        >
+          <span>Open in Analytics</span>
+          <ChevronRight className="w-4 h-4" />
+        </Link>
+      </div>
+
       {/* Header Controls */}
       <div className="bg-white dark:bg-[#18191C] p-4 sm:p-5 rounded-xl border border-slate-900 dark:border-[#3A3D42] shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -232,7 +255,7 @@ export default function CategoryReportPage() {
         </div>
         <div className="p-1">
           <span className="text-[10px] sm:text-xs font-bold text-slate-400 dark:text-[#949BA4] uppercase tracking-wider block">
-            Total Worker-Days
+            Total Day Count
           </span>
           <span className="text-lg sm:text-xl lg:text-2xl font-black text-amber-400 dark:text-[#1ED760] block mt-0.5">
             {totalWorkerDays}
@@ -261,8 +284,9 @@ export default function CategoryReportPage() {
         <>
           {/* DESKTOP / TABLET VIEW: Crisp table */}
           <div className="hidden md:block bg-white dark:bg-[#18191C] rounded-xl border border-slate-900 dark:border-[#3A3D42] shadow-sm overflow-hidden">
-            <div className="px-5 py-3.5 bg-slate-100 dark:bg-[#202225] border-b border-slate-900 dark:border-[#3A3D42] font-black text-sm text-[#0F172A] dark:text-[#F2F3F5] uppercase">
-              Role-Wise Attendance & Cost Breakdown ({roleBreakdown.length} roles)
+            <div className="px-5 py-3 bg-slate-900 dark:bg-[#202225] border-b border-slate-900 dark:border-[#3A3D42] font-black text-sm text-white dark:text-[#F2F3F5] uppercase flex items-center gap-2 shadow-sm">
+              <Layers className="w-4 h-4 text-emerald-400 dark:text-[#1ED760] shrink-0" />
+              Role-Wise Attendance &amp; Cost Breakdown ({roleBreakdown.length} roles)
             </div>
             <div className="overflow-x-auto custom-scrollbar">
               <table className="w-full text-left text-xs border-collapse">
@@ -272,7 +296,7 @@ export default function CategoryReportPage() {
                     <th className="py-2.5 px-4 text-center">Full Days</th>
                     <th className="py-2.5 px-4 text-center">Half Days</th>
                     <th className="py-2.5 px-4 text-center">Total Workers</th>
-                    <th className="py-2.5 px-4 text-center">Worker-Days</th>
+                    <th className="py-2.5 px-4 text-center">Day Count</th>
                     <th className="py-2.5 px-4 text-right">Total Cost</th>
                   </tr>
                 </thead>
@@ -320,10 +344,10 @@ export default function CategoryReportPage() {
                   </span>
                 </div>
 
-                {/* Bottom: Workers & Worker-Days */}
+                {/* Bottom: Workers & Day Count */}
                 <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-[#2B2D31] text-slate-500 dark:text-[#949BA4]">
                   <span>Total Workers: <strong className="text-slate-800 dark:text-[#F2F3F5]">{r.totalWorkers}</strong></span>
-                  <span>Worker-Days: <strong className="text-emerald-700 dark:text-[#1ED760] font-bold">{r.workerDays}</strong></span>
+                  <span>Day Count: <strong className="text-emerald-700 dark:text-[#1ED760] font-bold">{r.workerDays}</strong></span>
                 </div>
               </div>
             ))}

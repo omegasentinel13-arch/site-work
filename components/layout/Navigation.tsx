@@ -10,12 +10,12 @@ import {
   CalendarDays, 
   BarChart3, 
   IndianRupee, 
-  Settings, 
+  Building2,
   Layers, 
   Users, 
-  FileText,
   History,
   ShieldCheck,
+  Shield,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
@@ -25,6 +25,8 @@ export function Navigation() {
   const pathname = usePathname();
   const { user } = useSite();
   const isAdmin = user?.role === 'ADMIN';
+  const isSiteManager = user?.role === 'SITE_MANAGER';
+  const isViewer = user?.role === 'VIEWER';
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Map<string, HTMLAnchorElement>>(new Map());
@@ -44,24 +46,17 @@ export function Navigation() {
     {
       title: 'Attendance',
       items: [
-        { label: 'Daily Entry', href: '/attendance/daily', icon: ClipboardCheck },
-        { label: 'Weekly Matrix', href: '/attendance/weekly', icon: CalendarDays },
-        { label: 'Monthly Report', href: '/attendance/monthly', icon: BarChart3 },
-      ],
-    },
-    {
-      title: 'Reports',
-      items: [
-        { label: 'Role Breakdown', href: '/reports/role', icon: Users },
-        { label: 'Category Summary', href: '/reports/category', icon: Layers },
-        { label: 'Site Overview', href: '/reports/site', icon: FileText },
+        { label: 'Daily Attendance', href: '/attendance/daily', icon: ClipboardCheck },
+        { label: 'Weekly Attendance', href: '/attendance/weekly', icon: CalendarDays },
+        { label: 'Monthly Attendance', href: '/attendance/monthly', icon: BarChart3 },
+        { label: 'Analytics', href: '/reports/role', icon: Users, legacyLabel: 'Role Breakdown' },
       ],
     },
     {
       title: 'Money',
       items: [
         { label: 'Transactions', href: '/finance', icon: IndianRupee },
-        { label: 'Monthly Ledger', href: '/finance/monthly', icon: BarChart3 },
+        { label: 'Master Ledger', href: '/finance/monthly', icon: BarChart3 },
       ],
     },
   ];
@@ -70,10 +65,26 @@ export function Navigation() {
     navGroups.push({
       title: 'Setup & Admin',
       items: [
-        { label: 'Sites', href: '/setup/sites', icon: Settings },
-        { label: 'Roles & Rates', href: '/setup/roles', icon: Layers },
+        { label: 'Sites', href: '/setup/sites', icon: Building2 },
+        { label: 'Roles', href: '/setup/roles', icon: Layers },
         { label: 'Users & Access', href: '/setup/users', icon: Users },
-        { label: 'Audit Trail', href: '/setup/audit', icon: History },
+        { label: 'Audit Trail', href: '/setup/audit-trail', icon: History },
+        { label: 'Reports & Backup', href: '/admin/data-protection', icon: Shield },
+        { label: 'My Account', href: '/setup/account', icon: ShieldCheck },
+      ],
+    });
+  } else if (isSiteManager) {
+    navGroups.push({
+      title: 'Governance',
+      items: [
+        { label: 'Reports & Backup', href: '/admin/data-protection', icon: Shield },
+        { label: 'My Account', href: '/setup/account', icon: ShieldCheck },
+      ],
+    });
+  } else if (isViewer) {
+    navGroups.push({
+      title: 'Account',
+      items: [
         { label: 'My Account', href: '/setup/account', icon: ShieldCheck },
       ],
     });
@@ -243,6 +254,9 @@ export function Navigation() {
                           )} 
                         />
                         <span>{item.label}</span>
+                        {(item as { legacyLabel?: string }).legacyLabel && (
+                          <span className="sr-only">({(item as { legacyLabel?: string }).legacyLabel})</span>
+                        )}
                       </Link>
                     );
                   })}

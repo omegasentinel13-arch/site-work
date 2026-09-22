@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth/session';
 import { validateSiteAccess } from '@/lib/auth/permissions';
+import { canAccess } from '@/lib/permissions/evaluator';
 import { getAttendanceByDateRange } from '@/lib/db/repositories/attendance-repo';
+import { getDb } from '@/lib/db';
 
 export async function GET(req: Request) {
   const session = await getSession();
@@ -13,11 +15,37 @@ export async function GET(req: Request) {
     const categoryId = searchParams.get('categoryId') || undefined;
     const roleId = searchParams.get('roleId') || undefined;
 
-    if (!siteId || !startDate || !endDate) {
-      return NextResponse.json({ error: 'siteId, startDate, and endDate are required' }, { status: 400 });
+    if (!siteId) {
+      return NextResponse.json({ error: 'siteId is required' }, { status: 400 });
     }
 
-    validateSiteAccess(session, siteId, 'READ');
+    const access = canAccess({
+      session,
+      page: 'PAGE_ATTENDANCE_WEEKLY',
+      action: 'VIEW',
+      siteId,
+      resourceSiteId: siteId,
+    });
+    if (!access.allowed) {
+      return NextResponse.json({ error: access.reason }, { status: access.ruleSource === 'AUTHENTICATION_REQUIRED' ? 401 : 403 });
+    }
+
+    const db = getDb();
+    const boundsRow = db.prepare(
+      'SELECT MIN(date) as earliestDate, MAX(date) as latestDate FROM attendance_records WHERE site_id = ?'
+    ).get(siteId) as { earliestDate: string | null; latestDate: string | null } | undefined;
+
+    if (searchParams.get('bounds') === 'true' || (!startDate && !endDate)) {
+      return NextResponse.json({
+        siteId,
+        earliestDate: boundsRow?.earliestDate || null,
+        latestDate: boundsRow?.latestDate || null,
+      });
+    }
+
+    if (!startDate || !endDate) {
+      return NextResponse.json({ error: 'siteId, startDate, and endDate are required' }, { status: 400 });
+    }
 
     const records = getAttendanceByDateRange(siteId, startDate, endDate, categoryId, roleId);
 
@@ -32,6 +60,8 @@ export async function GET(req: Request) {
       startDate,
       endDate,
       records,
+      earliestDate: boundsRow?.earliestDate || null,
+      latestDate: boundsRow?.latestDate || null,
       totals: {
         totalCostPaise,
         totalWorkers,

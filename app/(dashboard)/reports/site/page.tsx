@@ -118,7 +118,7 @@ export default function SiteReportPage() {
 
             <div className="space-y-2.5 sm:space-y-3 text-xs sm:text-sm">
               <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-[#2B2D31]">
-                <span className="text-slate-500 dark:text-[#949BA4] font-medium">Total Recorded Worker-Days</span>
+                <span className="text-slate-500 dark:text-[#949BA4] font-medium">Total Recorded Day Count</span>
                 <span className="font-bold text-slate-900 dark:text-[#F2F3F5]">{totalWorkerDays}</span>
               </div>
               <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-[#2B2D31]">
