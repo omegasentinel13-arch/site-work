@@ -25,12 +25,22 @@ import {
 import { clsx } from 'clsx';
 
 export function Header() {
-  const { user, sites, selectedSiteId, setSelectedSiteId, logout } = useSite();
+  const { user, sites, selectedSiteId, setSelectedSiteId, logout, canonicalSlug } = useSite();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const pathname = usePathname();
   const isAdmin = user?.role === 'ADMIN';
   const isSiteManager = user?.role === 'SITE_MANAGER';
   const isViewer = user?.role === 'VIEWER';
+
+  const getHref = (subPath: string) => {
+    const slug = canonicalSlug || 'site1';
+    return subPath === '/' ? `/${slug}` : `/${slug}${subPath}`;
+  };
+
+  const isItemActive = (subPath: string) => {
+    const targetHref = getHref(subPath);
+    return pathname === targetHref || pathname === subPath;
+  };
 
   const scrollYRef = React.useRef(0);
   const isNavigatingRef = React.useRef(false);
@@ -124,7 +134,6 @@ export function Header() {
       title: 'Money',
       items: [
         { label: 'Transactions', href: '/finance', icon: IndianRupee },
-        { label: 'Master Ledger', href: '/finance/monthly', icon: BarChart3 },
       ],
     },
   ];
@@ -178,7 +187,7 @@ export function Header() {
               {mobileMenuOpen ? <X className="w-5 h-5 text-slate-900 dark:text-[#1ED760]" /> : <Menu className="w-5 h-5" />}
             </button>
 
-            <Link href="/" className="flex items-center space-x-1.5 sm:space-x-3 min-w-0 group">
+            <Link href={getHref('/')} className="flex items-center space-x-1.5 sm:space-x-3 min-w-0 group">
               <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg overflow-hidden bg-white p-0.5 border border-slate-900 dark:border-[#4A4D52] shadow-sm flex items-center justify-center shrink-0">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/logo.png" alt="AB Logo" className="w-full h-full object-contain rounded-md" />
@@ -295,11 +304,12 @@ export function Header() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
                     {group.items.map((item) => {
                       const Icon = item.icon;
-                      const isActive = pathname === item.href;
+                      const href = getHref(item.href);
+                      const isActive = isItemActive(item.href);
                       return (
                         <Link
                           key={item.href}
-                          href={item.href}
+                          href={href}
                           onClick={() => {
                             isNavigatingRef.current = true;
                             setMobileMenuOpen(false);

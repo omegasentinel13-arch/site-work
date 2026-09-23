@@ -23,10 +23,20 @@ import { clsx } from 'clsx';
 
 export function Navigation() {
   const pathname = usePathname();
-  const { user } = useSite();
+  const { user, canonicalSlug } = useSite();
   const isAdmin = user?.role === 'ADMIN';
   const isSiteManager = user?.role === 'SITE_MANAGER';
   const isViewer = user?.role === 'VIEWER';
+
+  const getHref = (subPath: string) => {
+    const slug = canonicalSlug || 'site1';
+    return subPath === '/' ? `/${slug}` : `/${slug}${subPath}`;
+  };
+
+  const isItemActive = (subPath: string) => {
+    const targetHref = getHref(subPath);
+    return pathname === targetHref || pathname === subPath;
+  };
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Map<string, HTMLAnchorElement>>(new Map());
@@ -56,7 +66,6 @@ export function Navigation() {
       title: 'Money',
       items: [
         { label: 'Transactions', href: '/finance', icon: IndianRupee },
-        { label: 'Master Ledger', href: '/finance/monthly', icon: BarChart3 },
       ],
     },
   ];
@@ -106,7 +115,7 @@ export function Navigation() {
   // Ensure active navigation item is scrolled into view without causing layout shifts
   const ensureActiveItemVisible = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const container = scrollContainerRef.current;
-    const activeEl = itemRefs.current.get(pathname);
+    const activeEl = itemRefs.current.get(pathname) || itemRefs.current.get(getHref(pathname));
     if (!container || !activeEl) return;
 
     const containerRect = container.getBoundingClientRect();
@@ -229,15 +238,21 @@ export function Navigation() {
                 <div className="flex items-center space-x-1 shrink-0">
                   {group.items.map((item) => {
                     const Icon = item.icon;
-                    const isActive = pathname === item.href;
+                    const href = getHref(item.href);
+                    const isActive = isItemActive(item.href);
                     return (
                       <Link
                         key={item.href}
-                        href={item.href}
-                        onClick={(e) => handleItemClick(e, item.href)}
+                        href={href}
+                        onClick={(e) => handleItemClick(e, href)}
                         ref={(el) => {
-                          if (el) itemRefs.current.set(item.href, el);
-                          else itemRefs.current.delete(item.href);
+                          if (el) {
+                            itemRefs.current.set(href, el);
+                            itemRefs.current.set(item.href, el);
+                          } else {
+                            itemRefs.current.delete(href);
+                            itemRefs.current.delete(item.href);
+                          }
                         }}
                         aria-current={isActive ? 'page' : undefined}
                         className={clsx(

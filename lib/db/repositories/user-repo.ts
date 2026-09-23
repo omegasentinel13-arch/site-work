@@ -42,8 +42,12 @@ export function getUserByUsername(
   actingActor?: AuthorityPrincipal | null
 ): UserDbRecord | null {
   const db = getDb();
-  const row = (db.prepare(`SELECT * FROM users WHERE username = ? COLLATE NOCASE`).get(username.trim()) as UserDbRecord) || null;
+  if (typeof username !== 'string' || !username) {
+    return null;
+  }
+  const row = (db.prepare(`SELECT * FROM users WHERE username = ? COLLATE BINARY`).get(username) as UserDbRecord) || null;
   if (!row) return null;
+  if (row.username !== username) return null;
 
   const actorId = actingActor?.id || (actingActor as any)?.userId;
 

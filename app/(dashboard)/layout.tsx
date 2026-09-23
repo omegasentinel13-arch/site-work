@@ -2,6 +2,9 @@ import React from 'react';
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { getSession } from '@/lib/auth/session';
+import { getAllSites } from '@/lib/db/repositories/site-repo';
+import { validateSiteAccess } from '@/lib/auth/permissions';
+import { resolveSiteBySlug, getCanonicalSiteSlug, getDeterministicFallbackSite } from '@/lib/site/slug';
 import { SiteProvider } from '@/context/site-context';
 import { Header } from '@/components/layout/Header';
 import { Navigation } from '@/components/layout/Navigation';
@@ -16,6 +19,7 @@ export default async function DashboardLayout({
 }) {
   const session = await getSession();
 
+  // Authentication gate
   if (!session) {
     const headersList = headers();
     const currentPath = headersList.get('x-current-path');
@@ -27,8 +31,69 @@ export default async function DashboardLayout({
     }
   }
 
+  const headersList = headers();
+  const candidateSlug = headersList.get('x-site-slug');
+  const currentPath = headersList.get('x-current-path') || '/';
+  const subPath = headersList.get('x-sub-path') || '/';
+
+  // Retrieve active sites from SQLite
+  const allSites = getAllSites(false);
+
+  // Extract query string
+  const queryIndex = currentPath.indexOf('?');
+  const search = queryIndex >= 0 ? currentPath.slice(queryIndex) : '';
+
+  let activeSiteId = '';
+  let activeCanonicalSlug = '';
+
+  if (candidateSlug) {
+    const resolution = resolveSiteBySlug(candidateSlug, allSites);
+
+    // If site does not exist, redirect to deterministic fallback site
+    if (!resolution.site) {
+      const fallback = getDeterministicFallbackSite(session, allSites);
+      if (fallback) {
+        const fallbackSlug = getCanonicalSiteSlug(fallback, allSites);
+        const targetSub = subPath === '/' ? '' : subPath;
+        redirect(`/${fallbackSlug}${targetSub}${search}`);
+      }
+      redirect('/login');
+    }
+
+    // Single canonical URL enforcement: if request used an alias, 307 redirect to canonical slug
+    if (!resolution.isCanonical && resolution.canonicalSlug) {
+      const targetSub = subPath === '/' ? '' : subPath;
+      redirect(`/${resolution.canonicalSlug}${targetSub}${search}`);
+    }
+
+    // Server-side authorization check: verify user has access to this site
+    try {
+      validateSiteAccess(session, resolution.site.id);
+    } catch {
+      // User is unauthorized for this site: calculate authorized fallback site
+      const fallback = getDeterministicFallbackSite(session, allSites);
+      if (fallback && fallback.id !== resolution.site.id) {
+        const fallbackSlug = getCanonicalSiteSlug(fallback, allSites);
+        const targetSub = subPath === '/' ? '' : subPath;
+        redirect(`/${fallbackSlug}${targetSub}${search}`);
+      }
+      redirect('/login');
+    }
+
+    activeSiteId = resolution.site.id;
+    activeCanonicalSlug = resolution.canonicalSlug || getCanonicalSiteSlug(resolution.site, allSites);
+  } else {
+    // Legacy un-prefixed route requested (e.g. /attendance/daily or /)
+    const targetSite = getDeterministicFallbackSite(session, allSites);
+    if (targetSite) {
+      const canonicalSlug = getCanonicalSiteSlug(targetSite, allSites);
+      const targetSub = currentPath === '/' ? '' : currentPath;
+      redirect(`/${canonicalSlug}${targetSub.startsWith('/') ? targetSub : '/' + targetSub}`);
+    }
+  }
+
   return (
-    <SiteProvider>
+    <SiteProvider initialSiteId={activeSiteId} initialCanonicalSlug={activeCanonicalSlug}>
       <div className="min-h-screen flex flex-col bg-[#F1F5F9] dark:bg-[#111214] text-[#0F172A] dark:text-[#F2F3F5] w-full transition-colors duration-150">
         <Header />
         <Navigation />

@@ -732,14 +732,6 @@ export default function SiteManagementPage() {
                       Transactions
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => handleNavigateShortcut('/finance/monthly')}
-                      className="min-h-[38px] px-2.5 py-1.5 bg-slate-100 dark:bg-[#202225] hover:bg-slate-200 dark:hover:bg-[#2B2D31] border border-slate-300 dark:border-[#3A3D42] rounded-lg text-slate-800 dark:text-[#F2F3F5] font-bold text-xs flex items-center justify-center transition-colors touch-action-manipulation"
-                    >
-                      <History className="w-3.5 h-3.5 mr-1 text-slate-500 dark:text-[#1ED760]" />
-                      Master Ledger
-                    </button>
 
                     <button
                       type="button"

@@ -19,7 +19,7 @@ export async function POST(req: Request) {
         entityType: 'AUTH',
         entityId: 'unauthenticated',
         action: 'LOGIN_FAILURE',
-        afterState: { attemptedUsername: username.trim() },
+        afterState: { attemptedUsername: username },
       });
       return NextResponse.json({ error: 'Invalid username or password' }, { status: 401 });
     }

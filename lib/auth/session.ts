@@ -32,10 +32,12 @@ export interface UserSession {
   authorityTier?: AuthorityTier;
   assignedSiteIds: string[];
   tokenVersion: number;
+  lastActivity?: number;
 }
 
 export async function createSessionCookie(payload: UserSession): Promise<string> {
   const secretKey = getSecretKey();
+  const nowSec = Math.floor(Date.now() / 1000);
 
   const token = await new SignJWT({
     userId: payload.userId,
@@ -45,6 +47,7 @@ export async function createSessionCookie(payload: UserSession): Promise<string>
     authorityTier: payload.authorityTier || (payload.role === 'ADMIN' ? 'STANDARD_ADMIN' : 'STANDARD'),
     assignedSiteIds: payload.assignedSiteIds,
     tokenVersion: payload.tokenVersion || 1,
+    lastActivity: payload.lastActivity || nowSec,
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
@@ -72,6 +75,15 @@ export async function verifySessionToken(token: string): Promise<UserSession | n
     const secretKey = getSecretKey();
     const { payload } = await jwtVerify(token, secretKey);
 
+    const nowSec = Math.floor(Date.now() / 1000);
+    // Backward compatibility: fallback to payload.iat if lastActivity is missing
+    const lastActivity = (payload.lastActivity as number) || (payload.iat as number) || nowSec;
+
+    // 60 minutes = 3600 seconds inactivity limit
+    if (nowSec - lastActivity > 3600) {
+      return null;
+    }
+
     const userId = payload.userId as string;
     const tokenVersion = (payload.tokenVersion as number) || 1;
 
@@ -97,9 +109,74 @@ export async function verifySessionToken(token: string): Promise<UserSession | n
       authorityTier,
       assignedSiteIds,
       tokenVersion: user.token_version,
+      lastActivity,
     };
   } catch {
     return null;
+  }
+}
+
+export async function refreshSessionActivity(explicitToken?: string): Promise<{ success: boolean; refreshed: boolean; message?: string }> {
+  try {
+    let token = explicitToken;
+    let cookieStore;
+    try {
+      cookieStore = cookies();
+      if (!token) {
+        token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+      }
+    } catch {
+      // test runner context
+    }
+
+    if (!token) {
+      return { success: false, refreshed: false, message: 'No session token' };
+    }
+
+    const secretKey = getSecretKey();
+    const { payload } = await jwtVerify(token, secretKey);
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const lastActivity = (payload.lastActivity as number) || (payload.iat as number) || nowSec;
+
+    // If expired past 60 min, cannot refresh
+    if (nowSec - lastActivity > 3600) {
+      return { success: false, refreshed: false, message: 'Session idle expired' };
+    }
+
+    // Throttling: only refresh if >= 5 minutes (300s) have passed since last activity
+    if (payload.lastActivity && (nowSec - (payload.lastActivity as number) < 300)) {
+      return { success: true, refreshed: false, message: 'Throttled (< 5 min)' };
+    }
+
+    const newToken = await new SignJWT({
+      userId: payload.userId,
+      username: payload.username,
+      fullName: payload.fullName,
+      role: payload.role,
+      authorityTier: payload.authorityTier,
+      assignedSiteIds: payload.assignedSiteIds,
+      tokenVersion: payload.tokenVersion,
+      lastActivity: nowSec,
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt(payload.iat || nowSec) // preserve original login issued-at
+      .setExpirationTime(payload.exp || (nowSec + 86400)) // preserve original 24h ceiling
+      .sign(secretKey);
+
+    if (cookieStore) {
+      cookieStore.set(SESSION_COOKIE_NAME, newToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 86400,
+      });
+    }
+
+    return { success: true, refreshed: true };
+  } catch (err: any) {
+    return { success: false, refreshed: false, message: err?.message || 'Verification error' };
   }
 }
 
