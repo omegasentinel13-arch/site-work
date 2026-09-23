@@ -49,10 +49,18 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(true);
       const userRes = await fetch('/api/auth/me');
       if (!userRes.ok) {
-        router.push('/login');
+        const currentPath = typeof window !== 'undefined' ? window.location.pathname + window.location.search : '';
+        const target = currentPath && currentPath !== '/' ? `/login?next=${encodeURIComponent(currentPath)}` : '/login';
+        router.replace(target);
         return;
       }
       const userData = await userRes.json();
+      if (!userData.user) {
+        const currentPath = typeof window !== 'undefined' ? window.location.pathname + window.location.search : '';
+        const target = currentPath && currentPath !== '/' ? `/login?next=${encodeURIComponent(currentPath)}` : '/login';
+        router.replace(target);
+        return;
+      }
       setUser(userData.user);
       if (userData.user?.id) {
         setActiveUser(userData.user.id);

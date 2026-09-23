@@ -1,14 +1,22 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Lock, User, AlertCircle, ArrowRight } from 'lucide-react';
+import { Lock, User, AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { normalizeSafeRedirectPath } from '@/lib/auth/redirect';
 
-export default function LoginPage() {
+export const dynamic = 'force-dynamic';
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextParam = searchParams.get('next');
+  const safeNext = normalizeSafeRedirectPath(nextParam);
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [checkingSetup, setCheckingSetup] = useState(true);
@@ -51,7 +59,7 @@ export default function LoginPage() {
         throw new Error(data.error || 'Login failed');
       }
 
-      router.replace('/');
+      router.replace(safeNext);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Invalid username or password');
     } finally {
@@ -130,13 +138,26 @@ export default function LoginPage() {
                   <Lock className="w-4 h-4" />
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full min-h-[44px] pl-10 pr-3 py-2 bg-white dark:bg-[#111214] border border-slate-900 dark:border-[#3A3D42] rounded-lg text-slate-900 dark:text-[#F2F3F5] placeholder-slate-400 dark:placeholder-[#6B7280] text-base sm:text-sm font-medium focus:ring-2 focus:ring-slate-900 dark:focus:ring-[#1ED760] focus:border-slate-900 dark:focus:border-[#1ED760] focus:outline-none input-no-zoom touch-action-manipulation"
+                  className="w-full min-h-[44px] pl-10 pr-12 py-2 bg-white dark:bg-[#111214] border border-slate-900 dark:border-[#3A3D42] rounded-lg text-slate-900 dark:text-[#F2F3F5] placeholder-slate-400 dark:placeholder-[#6B7280] text-base sm:text-sm font-medium focus:ring-2 focus:ring-slate-900 dark:focus:ring-[#1ED760] focus:border-slate-900 dark:focus:border-[#1ED760] focus:outline-none input-no-zoom touch-action-manipulation"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center justify-center w-11 h-11 text-slate-400 hover:text-slate-600 dark:text-[#949BA4] dark:hover:text-[#F2F3F5] focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 dark:focus-visible:ring-[#1ED760] rounded-r-lg touch-action-manipulation"
+                >
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4" aria-hidden="true" />
+                  ) : (
+                    <Eye className="w-4 h-4" aria-hidden="true" />
+                  )}
+                </button>
               </div>
             </div>
 
@@ -152,5 +173,19 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#F1F5F9] dark:bg-[#111214] flex items-center justify-center text-[#6B7280] dark:text-[#949BA4] text-sm">
+          Loading...
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }
