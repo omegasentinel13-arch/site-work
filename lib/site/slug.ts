@@ -1,46 +1,93 @@
-import { SiteRecord } from '@/lib/db/repositories/site-repo';
-import { UserSession } from '@/lib/auth/session';
+import type { SiteRecord } from '@/lib/db/repositories/site-repo';
+import type { UserSession } from '@/lib/auth/session';
 
 /**
- * Computes a unique canonical slug for each site.
- * Rule:
- * 1. If site.id matches `site-(\d+)`, canonical slug is `site${num}` (e.g. `site-1` -> `site1`, `site-2` -> `site2`).
- * 2. If code exists and is unique across active sites: slug is code in lowercase alphanumeric (e.g. `S-03A` -> `s03a`).
- * 3. Otherwise, derived from id: e.g. `site` + id suffix.
+ * Generates a Mode A (Name-based) canonical slug.
+ * - 'Site 1' -> 'site1'
+ * - 'Site 2' -> 'site2'
+ * - 'SIVASAKTHI SITE' -> 'sivasakthi-site'
+ * - 'Villa Project Phase 1 (Updated)' -> 'villa-project-phase-1-updated'
+ */
+export function generateNameSlug(name: string): string {
+  if (!name) return 'site';
+  const trimmed = name.trim();
+  if (trimmed.toLowerCase() === 'site 1') return 'site1';
+  if (trimmed.toLowerCase() === 'site 2') return 'site2';
+
+  const slug = trimmed
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return slug || 'site';
+}
+
+/**
+ * Generates a Mode B (Code-based) canonical slug.
+ * - 'S-01' -> 's01'
+ * - 'S-07' -> 's07'
+ */
+export function generateCodeSlug(code: string): string {
+  if (!code) return 'site';
+  const clean = code.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  return clean || 'site';
+}
+
+/**
+ * Computes the unique canonical slug for a site.
+ * Prioritizes persistent site.canonical_slug.
+ * Otherwise deterministically derives from routing_mode (NAME vs CODE).
  */
 export function getCanonicalSiteSlug(site: SiteRecord, allSites: SiteRecord[] = []): string {
-  const numMatch = site.id.match(/^site-(\d+)$/i);
-  if (numMatch) {
-    return `site${numMatch[1]}`;
+  if (site.canonical_slug) {
+    return site.canonical_slug;
   }
 
-  // If code exists, check if code-based slug is unique among allSites
-  if (site.code) {
-    const codeSlug = site.code.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (codeSlug.length > 0) {
-      const conflictingSites = allSites.filter(
-        (s) => s.id !== site.id && s.code && s.code.toLowerCase().replace(/[^a-z0-9]/g, '') === codeSlug
-      );
-      if (conflictingSites.length === 0) {
-        return codeSlug;
-      }
-    }
+  // Identity preservation for default sites
+  if (site.id === 'site-1' || site.name.trim().toLowerCase() === 'site 1') {
+    return 'site1';
+  }
+  if (site.id === 'site-2' || site.name.trim().toLowerCase() === 'site 2') {
+    return 'site2';
   }
 
-  // Fallback for UUID or non-standard IDs: use site + first 8 alphanumeric chars of ID
-  const cleanId = site.id.toLowerCase().replace(/[^a-z0-9]/g, '');
-  return cleanId.startsWith('site') ? cleanId.slice(0, 12) : `site${cleanId.slice(0, 8)}`;
+  // Derive based on routing mode
+  let baseSlug = '';
+  if (site.routing_mode === 'CODE' && site.code) {
+    baseSlug = generateCodeSlug(site.code);
+  } else {
+    baseSlug = generateNameSlug(site.name);
+  }
+
+  // Collision avoidance against other sites
+  const otherSites = allSites.filter((s) => s.id !== site.id);
+  const otherSlugs = new Set(
+    otherSites.map((s) => (s.canonical_slug ? s.canonical_slug.toLowerCase() : ''))
+  );
+
+  let finalSlug = baseSlug;
+  let counter = 2;
+  while (otherSlugs.has(finalSlug.toLowerCase())) {
+    finalSlug = `${baseSlug}-${counter}`;
+    counter++;
+  }
+
+  return finalSlug;
 }
 
 /**
  * Resolves a URL slug to a site and determines if the requested slug is canonical.
  * Handles:
- * - Exact canonical slug match (e.g. `site1`) -> isCanonical: true
+ * - Exact canonical slug match (e.g. `site1`, `sivasakthi-site`) -> isCanonical: true
  * - Aliases: `site-1`, `s-01`, `s01`, `S-01`, raw site id, etc. -> isCanonical: false, returns canonicalSlug for 307 redirect
+ * - Historical aliases via optional historicalFinder -> isCanonical: false, returns canonicalSlug for 307 redirect
+ *
+ * NOTE: Canonical resolution always takes precedence over historical alias resolution.
  */
 export function resolveSiteBySlug(
   rawSlug: string,
-  sites: SiteRecord[]
+  sites: SiteRecord[],
+  historicalFinder?: (slug: string) => SiteRecord | null
 ): { site: SiteRecord | null; isCanonical: boolean; canonicalSlug: string | null } {
   if (!rawSlug || !sites || sites.length === 0) {
     return { site: null, isCanonical: false, canonicalSlug: null };
@@ -48,7 +95,7 @@ export function resolveSiteBySlug(
 
   const slug = rawSlug.trim().toLowerCase();
 
-  // First pass: check for exact canonical match
+  // First pass: check for exact canonical match (Always takes precedence)
   for (const site of sites) {
     const canonical = getCanonicalSiteSlug(site, sites);
     if (canonical.toLowerCase() === slug) {
@@ -56,7 +103,7 @@ export function resolveSiteBySlug(
     }
   }
 
-  // Second pass: check for alias matches
+  // Second pass: check for in-memory alias matches (ID, code, slugified name)
   for (const site of sites) {
     const canonical = getCanonicalSiteSlug(site, sites);
 
@@ -89,6 +136,19 @@ export function resolveSiteBySlug(
     const numMatch = canonical.match(/^site(\d+)$/i);
     if (numMatch && slug === `site-${numMatch[1]}`) {
       return { site, isCanonical: false, canonicalSlug: canonical };
+    }
+  }
+
+  // Third pass: check historical aliases via server-provided finder if available
+  if (historicalFinder) {
+    try {
+      const historicalSite = historicalFinder(slug);
+      if (historicalSite) {
+        const canonical = getCanonicalSiteSlug(historicalSite, sites);
+        return { site: historicalSite, isCanonical: false, canonicalSlug: canonical };
+      }
+    } catch {
+      // Historical lookup failure fails safely
     }
   }
 

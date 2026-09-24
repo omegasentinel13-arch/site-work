@@ -43,18 +43,32 @@ export function SiteProvider({
   children,
   initialSiteId = '',
   initialCanonicalSlug = '',
+  initialUser = null,
+  initialSites = [],
 }: {
   children: React.ReactNode;
   initialSiteId?: string;
   initialCanonicalSlug?: string;
+  initialUser?: User | null;
+  initialSites?: Site[];
 }) {
   const router = useRouter();
   const { setActiveUser } = useTheme();
-  const [user, setUser] = useState<User | null>(null);
-  const [sites, setSites] = useState<Site[]>([]);
-  const [selectedSiteId, setSelectedSiteIdState] = useState<string>(initialSiteId);
-  const [canonicalSlug, setCanonicalSlug] = useState<string>(initialCanonicalSlug);
-  const [isLoading, setIsLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(initialUser);
+  const [sites, setSites] = useState<Site[]>(initialSites);
+  const [selectedSiteId, setSelectedSiteIdState] = useState<string>(() => {
+    if (initialSiteId) return initialSiteId;
+    if (initialSites && initialSites.length > 0) return initialSites[0].id;
+    return '';
+  });
+  const [canonicalSlug, setCanonicalSlug] = useState<string>(() => {
+    if (initialCanonicalSlug) return initialCanonicalSlug;
+    if (initialSites && initialSites.length > 0) {
+      return getCanonicalSiteSlug(initialSites[0] as any, initialSites as any);
+    }
+    return '';
+  });
+  const [isLoading, setIsLoading] = useState<boolean>(() => !initialUser);
 
   const fetchSessionAndSites = useCallback(async () => {
     try {
@@ -130,8 +144,13 @@ export function SiteProvider({
   }, [router, setActiveUser, initialSiteId]);
 
   useEffect(() => {
-    fetchSessionAndSites();
-  }, [fetchSessionAndSites]);
+    if (initialUser?.id) {
+      setActiveUser(initialUser.id);
+    }
+    if (!initialUser || initialSites.length === 0) {
+      fetchSessionAndSites();
+    }
+  }, [fetchSessionAndSites, initialUser, initialSites.length, setActiveUser]);
 
   const setSelectedSiteId = (id: string) => {
     setSelectedSiteIdState(id);

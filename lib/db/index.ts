@@ -274,6 +274,84 @@ function runMigrations(db: DatabaseSync): void {
   } catch (err) {
     console.error('Error creating audit_logs performance indexes:', err);
   }
+
+  // 10. Ensure routing_mode and canonical_slug exist on sites table, and site_slug_history table exists
+  try {
+    const siteTableInfo = db.prepare('PRAGMA table_info(sites);').all() as { name: string }[];
+    const siteColumns = new Set(siteTableInfo.map(c => c.name));
+
+    if (!siteColumns.has('routing_mode')) {
+      db.exec("ALTER TABLE sites ADD COLUMN routing_mode TEXT NOT NULL DEFAULT 'NAME';");
+    }
+    if (!siteColumns.has('canonical_slug')) {
+      db.exec('ALTER TABLE sites ADD COLUMN canonical_slug TEXT;');
+    }
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS site_slug_history (
+        slug TEXT PRIMARY KEY,
+        site_id TEXT NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_site_slug_history_site_id ON site_slug_history(site_id);
+    `);
+
+    // Backfill canonical_slug for any site where canonical_slug IS NULL or empty
+    const unsluggedSites = db.prepare("SELECT id, name, code, routing_mode, canonical_slug FROM sites WHERE canonical_slug IS NULL OR canonical_slug = ''").all() as {
+      id: string;
+      name: string;
+      code: string | null;
+      routing_mode: string;
+      canonical_slug: string | null;
+    }[];
+
+    if (unsluggedSites.length > 0) {
+      const allActiveSlugs = new Set(
+        (db.prepare("SELECT canonical_slug FROM sites WHERE canonical_slug IS NOT NULL AND canonical_slug != ''").all() as { canonical_slug: string }[]).map(r => r.canonical_slug.toLowerCase())
+      );
+
+      for (const site of unsluggedSites) {
+        let baseSlug = '';
+        if (site.id === 'site-1') {
+          baseSlug = 'site1';
+        } else if (site.id === 'site-2') {
+          baseSlug = 'site2';
+        } else if (site.routing_mode === 'CODE' && site.code) {
+          baseSlug = site.code.toLowerCase().replace(/[^a-z0-9]/g, '');
+        } else {
+          // Name-based
+          baseSlug = site.name
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+        }
+
+        if (!baseSlug) {
+          baseSlug = `site-${site.id.slice(0, 8)}`;
+        }
+
+        let finalSlug = baseSlug;
+        let counter = 2;
+        while (allActiveSlugs.has(finalSlug)) {
+          finalSlug = `${baseSlug}-${counter}`;
+          counter++;
+        }
+
+        allActiveSlugs.add(finalSlug);
+
+        db.prepare('UPDATE sites SET canonical_slug = ? WHERE id = ?').run(finalSlug, site.id);
+
+        // Also add legacy fallback alias if applicable (e.g. site9f089532)
+        const cleanId = site.id.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const legacyUuidSlug = cleanId.startsWith('site') ? cleanId.slice(0, 12) : `site${cleanId.slice(0, 8)}`;
+        if (legacyUuidSlug !== finalSlug) {
+          db.prepare("INSERT OR IGNORE INTO site_slug_history (slug, site_id, created_at) VALUES (?, ?, datetime('now'))").run(legacyUuidSlug, site.id);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error migrating site routing tables:', err);
+  }
 }
 
 export function getDb(allowLocked = false): DatabaseSync {

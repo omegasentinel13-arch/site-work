@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { getUserByUsername, getUserAssignedSites } from '@/lib/db/repositories/user-repo';
+import { getAllSites } from '@/lib/db/repositories/site-repo';
+import { getDeterministicFallbackSite, getCanonicalSiteSlug } from '@/lib/site/slug';
 import { createSessionCookie } from '@/lib/auth/session';
 import { logAudit } from '@/lib/audit/logger';
 
@@ -66,6 +68,21 @@ export async function POST(req: Request) {
       afterState: { username: user.username, role: user.role },
     });
 
+    const allSites = getAllSites(false);
+    const defaultSite = getDeterministicFallbackSite(
+      {
+        userId: user.id,
+        username: user.username,
+        role: user.role,
+        assignedSiteIds,
+        fullName: user.full_name,
+        tokenVersion: user.token_version,
+      } as any,
+      allSites
+    );
+    const defaultSlug = defaultSite ? getCanonicalSiteSlug(defaultSite, allSites) : null;
+    const defaultUrl = defaultSlug ? `/${defaultSlug}` : '/';
+
     return NextResponse.json({
       user: {
         id: user.id,
@@ -77,6 +94,7 @@ export async function POST(req: Request) {
         recoveryEmail: user.role === 'ADMIN' ? user.recovery_email : null,
         assignedSiteIds,
       },
+      defaultUrl,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Login failed';

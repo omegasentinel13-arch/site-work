@@ -7,6 +7,7 @@ import {
   getLifecycleRecord 
 } from './global-lifecycle-repo';
 import { evaluateSiteDependencies } from '@/lib/lifecycle/site-dependency';
+import { generateNameSlug, generateCodeSlug } from '@/lib/site/slug';
 
 export interface SiteRecord {
   id: string;
@@ -17,6 +18,8 @@ export interface SiteRecord {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  routing_mode?: 'NAME' | 'CODE';
+  canonical_slug?: string;
   lifecycle_state?: 'ACTIVE' | 'ARCHIVED' | 'RECYCLE_BIN';
   recycled_at?: string | null;
   keep_permanently?: number;
@@ -82,23 +85,132 @@ export function getSiteById(id: string): SiteRecord | null {
   return row || null;
 }
 
-export function createSite(name: string, code: string | null, location: string | null, createdBy: string | null): string {
+export function getSiteByHistoricalSlug(slug: string): SiteRecord | null {
   const db = getDb();
-  const id = `site-${crypto.randomUUID()}`;
-  db.prepare(`
-    INSERT INTO sites (id, name, code, location, is_archived, created_by, created_at, updated_at)
-    VALUES (?, ?, ?, ?, 0, ?, datetime('now'), datetime('now'))
-  `).run(id, name.trim(), code ? code.trim() : null, location ? location.trim() : null, createdBy);
-  return id;
+  try {
+    const row = db
+      .prepare('SELECT site_id FROM site_slug_history WHERE LOWER(slug) = LOWER(?)')
+      .get(slug) as { site_id: string } | undefined;
+    if (row) {
+      return getSiteById(row.site_id);
+    }
+  } catch {}
+  return null;
 }
 
-export function updateSite(id: string, name: string, code: string | null, location: string | null): void {
+export function createSite(
+  name: string,
+  code: string | null,
+  location: string | null,
+  createdBy: string | null,
+  routingMode: 'NAME' | 'CODE' = 'NAME'
+): string {
   const db = getDb();
-  db.prepare(`
-    UPDATE sites 
-    SET name = ?, code = ?, location = ?, updated_at = datetime('now')
-    WHERE id = ?
-  `).run(name.trim(), code ? code.trim() : null, location ? location.trim() : null, id);
+  return runTransaction(db, () => {
+    const id = `site-${crypto.randomUUID()}`;
+    const trimmedName = name.trim();
+    const trimmedCode = code ? code.trim() : null;
+    const trimmedLocation = location ? location.trim() : null;
+
+    let baseSlug = '';
+    if (routingMode === 'CODE' && trimmedCode) {
+      baseSlug = generateCodeSlug(trimmedCode);
+    } else {
+      baseSlug = generateNameSlug(trimmedName);
+    }
+
+    const otherSites = getAllSites(false);
+    const otherSlugs = new Set(otherSites.map((s) => s.canonical_slug?.toLowerCase()).filter(Boolean));
+    let candidate = baseSlug;
+    let count = 2;
+    while (otherSlugs.has(candidate.toLowerCase())) {
+      candidate = `${baseSlug}-${count}`;
+      count++;
+    }
+
+    db.prepare(`
+      INSERT INTO sites (id, name, code, location, is_archived, created_by, created_at, updated_at, routing_mode, canonical_slug)
+      VALUES (?, ?, ?, ?, 0, ?, datetime('now'), datetime('now'), ?, ?)
+    `).run(id, trimmedName, trimmedCode, trimmedLocation, createdBy, routingMode, candidate);
+
+    return id;
+  });
+}
+
+export function updateSite(
+  id: string,
+  name: string,
+  code: string | null,
+  location: string | null
+): void {
+  const db = getDb();
+  runTransaction(db, () => {
+    const existingSite = getSiteById(id);
+    if (!existingSite) {
+      throw new Error(`Site with id ${id} not found`);
+    }
+
+    const trimmedName = name.trim();
+    const trimmedCode = code ? code.trim() : null;
+    const trimmedLocation = location ? location.trim() : null;
+    const routingMode = existingSite.routing_mode || 'NAME';
+    let newCanonicalSlug = existingSite.canonical_slug || '';
+
+    let shouldUpdateSlug = false;
+    if (routingMode === 'NAME') {
+      // IF routing_mode = NAME:
+      // name changes: recalculate canonical_slug from new name, store old canonical_slug in history, update canonical_slug, 307 old -> new
+      // code changes: DO NOT change canonical_slug, DO NOT create slug history, URL remains unchanged
+      if (trimmedName.toLowerCase() !== existingSite.name.toLowerCase()) {
+        shouldUpdateSlug = true;
+        const baseSlug = generateNameSlug(trimmedName);
+        const otherSites = getAllSites(false).filter((s) => s.id !== id);
+        const otherSlugs = new Set(otherSites.map((s) => s.canonical_slug?.toLowerCase()).filter(Boolean));
+        let candidate = baseSlug;
+        let count = 2;
+        while (otherSlugs.has(candidate.toLowerCase())) {
+          candidate = `${baseSlug}-${count}`;
+          count++;
+        }
+        newCanonicalSlug = candidate;
+      }
+    } else if (routingMode === 'CODE') {
+      // IF routing_mode = CODE:
+      // name changes: DO NOT change canonical_slug, DO NOT create slug history, URL remains unchanged
+      // code changes: recalculate canonical_slug from new code, store old canonical_slug in history, update canonical_slug, 307 old -> new
+      const existingCode = existingSite.code ? existingSite.code.toLowerCase() : '';
+      const nextCode = trimmedCode ? trimmedCode.toLowerCase() : '';
+      if (existingCode !== nextCode && trimmedCode) {
+        shouldUpdateSlug = true;
+        const baseSlug = generateCodeSlug(trimmedCode);
+        const otherSites = getAllSites(false).filter((s) => s.id !== id);
+        const otherSlugs = new Set(otherSites.map((s) => s.canonical_slug?.toLowerCase()).filter(Boolean));
+        let candidate = baseSlug;
+        let count = 2;
+        while (otherSlugs.has(candidate.toLowerCase())) {
+          candidate = `${baseSlug}-${count}`;
+          count++;
+        }
+        newCanonicalSlug = candidate;
+      }
+    }
+
+    if (shouldUpdateSlug && existingSite.canonical_slug && existingSite.canonical_slug !== newCanonicalSlug) {
+      // Reconcile site_slug_history: if new canonical slug is in history for this site, remove it
+      db.prepare('DELETE FROM site_slug_history WHERE LOWER(slug) = LOWER(?)').run(newCanonicalSlug);
+
+      // Add old canonical slug to history
+      db.prepare(
+        "INSERT OR REPLACE INTO site_slug_history (slug, site_id, created_at) VALUES (?, ?, datetime('now'))"
+      ).run(existingSite.canonical_slug, id);
+    }
+
+    db.prepare(`
+      UPDATE sites 
+      SET name = ?, code = ?, location = ?, canonical_slug = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(trimmedName, trimmedCode, trimmedLocation, newCanonicalSlug || existingSite.canonical_slug, id);
+  });
 }
 
 export function toggleSiteArchived(id: string, isArchived: boolean, userId?: string | null): void {

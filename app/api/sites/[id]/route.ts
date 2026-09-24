@@ -77,6 +77,8 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       setSiteUsers(params.id, assignedUserIds);
     }
 
+    const updatedSite = getSiteById(params.id);
+
     logAudit({
       entityType: 'SITE',
       entityId: params.id,
@@ -84,10 +86,10 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       siteId: params.id,
       userId: session!.userId,
       beforeState: existing as unknown as Record<string, unknown>,
-      afterState: { name, code, location, assignedUserIds },
+      afterState: { name, code, location, assignedUserIds, canonicalSlug: updatedSite?.canonical_slug },
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, site: updatedSite, canonicalSlug: updatedSite?.canonical_slug });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to update site';
     return NextResponse.json({ error: msg }, { status: 403 });

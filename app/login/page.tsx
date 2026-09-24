@@ -59,7 +59,20 @@ function LoginForm() {
         throw new Error(data.error || 'Login failed');
       }
 
-      router.replace(safeNext);
+      // Safe destination selection:
+      // If nextParam exists and passes safe validation to an internal relative route !== '/', use safeNext.
+      // If nextParam is absent, invalid, external, or normalizes to '/', use server-provided data.defaultUrl!
+      let targetDestination = data.defaultUrl || '/';
+      if (nextParam) {
+        const validated = normalizeSafeRedirectPath(nextParam);
+        if (validated && validated !== '/') {
+          targetDestination = validated;
+        }
+      }
+
+      // Clean document navigation: resets Next.js client-side router cache across route groups
+      // and ensures session cookie is immediately sent with full document GET headers.
+      window.location.assign(targetDestination);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Invalid username or password');
     } finally {
