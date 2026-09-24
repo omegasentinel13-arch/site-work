@@ -474,6 +474,78 @@ async function runTests() {
     db.prepare('DELETE FROM site_slug_history WHERE site_id = ?').run(tempId);
   });
 
+  // --------------------------------------------------------------------------
+  // J17: RSC Serialization Safety Regression Test (Digest 1133208979 Fix)
+  // --------------------------------------------------------------------------
+  test('J17: RSC serialization strips null prototypes and preserves all routing fields with Object.prototype', async () => {
+    const { serializeSiteForClient, serializeUserForClient } = await import('../lib/site/serialization');
+    const rawSites = getAllSites(false);
+    assert.ok(rawSites.length >= 2);
+
+    // Verify raw SQLite row objects have null prototype (the root cause of digest 1133208979)
+    assert.equal(Object.getPrototypeOf(rawSites[0]), null, 'Raw SQLite row must have null prototype');
+
+    // Run serialization
+    const serializedSites = rawSites.map(serializeSiteForClient);
+    const rawSession = {
+      userId: 'usr-admin-1',
+      username: 'Iamadmin',
+      fullName: 'System Administrator',
+      role: 'ADMIN' as const,
+      authorityTier: 'KING_MAKER' as any,
+      assignedSiteIds: ['site-1', 'site-2'],
+      tokenVersion: 1,
+    };
+    const serializedUser = serializeUserForClient(rawSession);
+
+    // Assert user serialization
+    assert.equal(Object.getPrototypeOf(serializedUser), Object.prototype, 'User must have standard Object.prototype');
+    assert.equal(serializedUser.id, 'usr-admin-1');
+    assert.equal(serializedUser.username, 'Iamadmin');
+    assert.equal(Array.isArray(serializedUser.assignedSiteIds), true);
+    assert.deepEqual(serializedUser.assignedSiteIds, ['site-1', 'site-2']);
+
+    // Assert site serialization
+    for (const site of serializedSites) {
+      assert.equal(Object.getPrototypeOf(site), Object.prototype, 'Serialized site must have standard Object.prototype');
+      assert.equal(typeof site.id, 'string');
+      assert.equal(typeof site.name, 'string');
+      assert.equal(typeof site.is_archived, 'number');
+      assert.ok(site.routing_mode === 'NAME' || site.routing_mode === 'CODE');
+      assert.equal(typeof site.canonical_slug, 'string');
+      assert.ok(site.canonical_slug.length > 0);
+
+      // Verify no functions, undefined, or circular references
+      for (const [key, val] of Object.entries(site)) {
+        assert.notEqual(val, undefined, `Property ${key} must not be undefined`);
+        assert.notEqual(typeof val, 'function', `Property ${key} must not be a function`);
+      }
+    }
+
+    // Verify exact routing fields for canonical sites
+    const site1 = serializedSites.find((s) => s.id === 'site-1');
+    assert.ok(site1, 'Site 1 must exist');
+    assert.equal(site1.routing_mode, 'NAME');
+    assert.equal(site1.canonical_slug, 'site1');
+
+    const site2 = serializedSites.find((s) => s.id === 'site-2');
+    assert.ok(site2, 'Site 2 must exist');
+    assert.equal(site2.routing_mode, 'NAME');
+    assert.equal(site2.canonical_slug, 'site2');
+
+    const villaSite = serializedSites.find((s) => s.id.includes('9f089532') || s.name.includes('Villa'));
+    if (villaSite) {
+      assert.equal(villaSite.routing_mode, 'NAME');
+      assert.ok(villaSite.canonical_slug!.startsWith('villa-project-phase-1-updated'));
+    }
+
+    // Flight RSC JSON serializability assertion
+    const payload = JSON.stringify({ initialUser: serializedUser, initialSites: serializedSites });
+    const parsed = JSON.parse(payload);
+    assert.equal(parsed.initialSites.length, serializedSites.length);
+    assert.equal(Object.getPrototypeOf(parsed.initialSites[0]), Object.prototype);
+  });
+
   console.log('\n====================================================');
   console.log(`ALL TESTS PASSED: ${passed}/${total}`);
   console.log('====================================================\n');

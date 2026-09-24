@@ -12,6 +12,8 @@ export interface Site {
   code: string | null;
   location: string | null;
   is_archived: number;
+  routing_mode?: 'NAME' | 'CODE';
+  canonical_slug?: string | null;
 }
 
 export interface User {

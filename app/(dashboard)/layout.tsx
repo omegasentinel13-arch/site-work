@@ -6,6 +6,7 @@ import { getAllSites, getSiteByHistoricalSlug } from '@/lib/db/repositories/site
 import { validateSiteAccess } from '@/lib/auth/permissions';
 import { resolveSiteBySlug, getCanonicalSiteSlug, getDeterministicFallbackSite } from '@/lib/site/slug';
 import { isOperationalRoute } from '@/lib/site/routes';
+import { serializeSiteForClient, serializeUserForClient } from '@/lib/site/serialization';
 import { SiteProvider } from '@/context/site-context';
 import { Header } from '@/components/layout/Header';
 import { Navigation } from '@/components/layout/Navigation';
@@ -106,21 +107,15 @@ export default async function DashboardLayout({
     }
   }
 
-  const initialUser = {
-    id: session.userId,
-    username: session.username,
-    fullName: session.fullName,
-    role: session.role,
-    authorityTier: session.authorityTier,
-    assignedSiteIds: session.assignedSiteIds,
-  };
+  const serializedSites = allSites.map(serializeSiteForClient);
+  const serializedUser = serializeUserForClient(session);
 
   return (
     <SiteProvider
       initialSiteId={activeSiteId}
       initialCanonicalSlug={activeCanonicalSlug}
-      initialUser={initialUser}
-      initialSites={allSites}
+      initialUser={serializedUser}
+      initialSites={serializedSites}
     >
       <div className="min-h-screen flex flex-col bg-[#F1F5F9] dark:bg-[#111214] text-[#0F172A] dark:text-[#F2F3F5] w-full transition-colors duration-150">
         <Header />
