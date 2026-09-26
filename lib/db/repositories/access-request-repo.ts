@@ -5,9 +5,11 @@ import type { DatabaseSync } from 'node:sqlite';
 import { logAudit, logAuditInTransaction } from '@/lib/audit/logger';
 import {
   dispatchAccessRequestEmail,
+  sendAccessRequestNotification,
   renderNewAccessRequestEmail,
   renderAccessRequestApprovedEmail,
   renderAccessRequestDeniedEmail,
+  getAppBaseUrl,
 } from '@/lib/email/access-request-mailer';
 import { canAccess } from '@/lib/permissions/evaluator';
 
@@ -321,10 +323,11 @@ export class AccessRequestRepository {
     // 10. Safe Sequential Notification Dispatch
     // (Failures here update notification record to FAILED without aborting the pending request)
     const dispatchPromise = (async () => {
-      const reviewUrl = `${process.env.APP_URL || 'http://localhost:3000'}/setup/users?requestId=${requestId}`;
+      const reviewUrl = `${getAppBaseUrl()}/setup/users?requestId=${requestId}`;
       
       // Sequential dispatch to prevent concurrent socket contention on SMTP transport
       for (const approver of approvers) {
+        const notifId = `arn-${requestId}-${approver.id}`;
         try {
           const emailData = renderNewAccessRequestEmail({
             requesterName: fullName,
@@ -341,7 +344,7 @@ export class AccessRequestRepository {
             subject: emailData.subject,
             text: emailData.text,
             html: emailData.html,
-            metadata: { requestId, approverId: approver.id },
+            metadata: { requestId, approverId: approver.id, notificationId: notifId },
           });
 
           if (result.success && result.deliveryStatus === 'SENT') {
@@ -359,7 +362,7 @@ export class AccessRequestRepository {
               afterState: {
                 recipient: approver.email,
                 requestId,
-                transport: 'SMTP',
+                transport: result.provider || 'HTTPS',
                 messageId: result.messageId,
                 smtpResponse: result.response,
                 envelope: result.envelope,
@@ -377,7 +380,7 @@ export class AccessRequestRepository {
               entityId: requestId,
               action: 'NOTIFICATION_SENT',
               userId: approver.id,
-              afterState: { recipient: approver.email, requestId, transport: 'DEV_INBOX' },
+              afterState: { recipient: approver.email, requestId, transport: result.provider || 'DEV_INBOX' },
             });
           } else {
             db.prepare(`
@@ -396,6 +399,7 @@ export class AccessRequestRepository {
                 error: result.error,
                 messageId: result.messageId,
                 smtpResponse: result.response,
+                transport: result.provider || 'HTTPS',
               },
             });
           }
@@ -596,7 +600,7 @@ export class AccessRequestRepository {
       // 10. Asynchronously send approval email
       (async () => {
         try {
-          const signInUrl = `${process.env.APP_URL || 'http://localhost:3000'}/login`;
+          const signInUrl = `${getAppBaseUrl()}/login`;
           const emailData = renderAccessRequestApprovedEmail({
             fullName: request.requester_full_name,
             username: request.requested_username,
@@ -609,7 +613,7 @@ export class AccessRequestRepository {
             subject: emailData.subject,
             text: emailData.text,
             html: emailData.html,
-            metadata: { requestId, userId },
+            metadata: { requestId, userId, notificationId: approvalNotifId },
           });
 
           if (res.success && res.deliveryStatus === 'SENT') {
@@ -624,7 +628,7 @@ export class AccessRequestRepository {
               entityId: requestId,
               action: 'NOTIFICATION_SENT',
               userId: reviewer.userId,
-              afterState: { type: 'APPROVAL', recipient: request.requested_email, transport: 'SMTP' },
+              afterState: { type: 'APPROVAL', recipient: request.requested_email, transport: res.provider || 'HTTPS' },
             });
           } else if (res.success && res.deliveryStatus === 'DEV_CAPTURED') {
             db.prepare(`
@@ -638,7 +642,7 @@ export class AccessRequestRepository {
               entityId: requestId,
               action: 'NOTIFICATION_SENT',
               userId: reviewer.userId,
-              afterState: { type: 'APPROVAL', recipient: request.requested_email, transport: 'DEV_INBOX' },
+              afterState: { type: 'APPROVAL', recipient: request.requested_email, transport: res.provider || 'DEV_INBOX' },
             });
           } else {
             db.prepare(`
@@ -745,7 +749,7 @@ export class AccessRequestRepository {
             subject: emailData.subject,
             text: emailData.text,
             html: emailData.html,
-            metadata: { requestId },
+            metadata: { requestId, notificationId: denialNotifId },
           });
 
           if (res.success && res.deliveryStatus === 'SENT') {
@@ -760,7 +764,7 @@ export class AccessRequestRepository {
               entityId: requestId,
               action: 'NOTIFICATION_SENT',
               userId: reviewer.userId,
-              afterState: { type: 'DENIAL', recipient: request.requested_email, transport: 'SMTP' },
+              afterState: { type: 'DENIAL', recipient: request.requested_email, transport: res.provider || 'HTTPS' },
             });
           } else if (res.success && res.deliveryStatus === 'DEV_CAPTURED') {
             db.prepare(`
@@ -774,7 +778,7 @@ export class AccessRequestRepository {
               entityId: requestId,
               action: 'NOTIFICATION_SENT',
               userId: reviewer.userId,
-              afterState: { type: 'DENIAL', recipient: request.requested_email, transport: 'DEV_INBOX' },
+              afterState: { type: 'DENIAL', recipient: request.requested_email, transport: res.provider || 'DEV_INBOX' },
             });
           } else {
             db.prepare(`

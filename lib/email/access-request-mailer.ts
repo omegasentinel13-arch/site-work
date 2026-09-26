@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import { isSmtpConfigured, getSmtpConfig } from './mailer';
 import { captureDevEmail, CapturedEmail } from './dev-inbox';
+import { getTransactionalEmailProvider } from './providers';
 
 export interface NewAccessRequestEmailData {
   requesterName: string;
@@ -310,9 +311,18 @@ export async function verifySmtpConnection(): Promise<{ success: boolean; error?
   }
 }
 
+export function getAppBaseUrl(): string {
+  if (process.env.APP_BASE_URL) return process.env.APP_BASE_URL.replace(/\/+$/, '');
+  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/+$/, '');
+  if (process.env.RAILWAY_PUBLIC_DOMAIN) return `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+  if (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT) return 'https://site-work-app-production.up.railway.app';
+  return 'http://localhost:3000';
+}
+
 export interface DispatchResult {
   success: boolean;
   deliveryStatus: 'SENT' | 'DEV_CAPTURED' | 'FAILED';
+  provider?: string;
   error?: string;
   devCaptured?: boolean;
   messageId?: string;
@@ -323,11 +333,10 @@ export interface DispatchResult {
 }
 
 /**
- * Universal safe dispatcher for access request emails.
- * Supports configurable local SMTP when EMAIL_MODE=smtp,
- * and defaults to dev-inbox for offline/safe testing.
+ * Universal safe dispatcher for access request emails using HTTPS Transactional Provider abstraction.
+ * Dispatches through Resend in production / HTTPS mode, or Mock / Dev-Captured / local SMTP when configured.
  */
-export async function dispatchAccessRequestEmail({
+export async function sendAccessRequestNotification({
   to,
   subject,
   text,
@@ -340,136 +349,36 @@ export async function dispatchAccessRequestEmail({
   html: string;
   metadata?: Record<string, unknown>;
 }): Promise<DispatchResult> {
-  const transportMode = resolveEmailTransportMode();
+  const provider = getTransactionalEmailProvider();
 
-  // 1. Development Dev-Inbox Transport
-  if (transportMode === 'DEV_CAPTURED') {
-    try {
-      captureDevEmail({
-        to,
-        from: 'system@sitework.local',
-        subject,
-        text,
-        html,
-        metadata,
-      });
-      return { success: true, deliveryStatus: 'DEV_CAPTURED', devCaptured: true };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to capture dev email';
-      return { success: false, deliveryStatus: 'FAILED', error: msg };
-    }
-  }
+  const idempotencyKey = metadata?.notificationId 
+    ? String(metadata.notificationId)
+    : (metadata?.requestId ? `${metadata.requestId}-${to}` : undefined);
 
-  // 2. Real SMTP Transport (Requested via EMAIL_MODE=smtp or in Production)
-  if (!isSmtpConfigured()) {
-    return {
-      success: false,
-      deliveryStatus: 'FAILED',
-      error: 'SMTP configuration missing or incomplete (SMTP_HOST, SMTP_USER, SMTP_PASSWORD required)',
-    };
-  }
+  const result = await provider.send({
+    to,
+    subject,
+    text,
+    html,
+    idempotencyKey,
+    metadata,
+  });
 
-  try {
-    const config = getSmtpConfig()!;
-    const isDebugActive = process.env.NODE_ENV !== 'production' || process.env.DEBUG_SMTP === 'true';
-
-    const transporter = nodemailer.createTransport({
-      host: config.host,
-      port: config.port,
-      secure: config.secure,
-      auth: {
-        user: config.user,
-        pass: config.pass,
-      },
-      debug: isDebugActive,
-      logger: isDebugActive
-        ? {
-            level: () => {},
-            trace: () => {},
-            debug: (entry: any, ...args: any[]) => {
-              const str = typeof entry === 'string' ? entry : JSON.stringify(entry);
-              if (!str.includes('AUTH') && !str.includes(config.pass)) {
-                console.log('[SMTP DEBUG]', str, ...args);
-              }
-            },
-            info: (entry: any, ...args: any[]) => {
-              const str = typeof entry === 'string' ? entry : JSON.stringify(entry);
-              if (!str.includes(config.pass)) {
-                console.log('[SMTP INFO]', str, ...args);
-              }
-            },
-            warn: (entry: any, ...args: any[]) => console.warn('[SMTP WARN]', entry, ...args),
-            error: (entry: any, ...args: any[]) => console.error('[SMTP ERROR]', entry, ...args),
-          }
-        : false,
-    } as any);
-
-    const envelope = {
-      from: config.user,
-      to: [to],
-    };
-
-    const hostDomain = config.user.includes('@') ? config.user.split('@')[1] : 'sitework.local';
-    const uniqueMessageId = `<ar-${Date.now()}-${crypto.randomBytes(4).toString('hex')}@${hostDomain}>`;
-
-    const info = await transporter.sendMail({
-      from: config.from,
-      to,
-      subject,
-      text,
-      html,
-      envelope,
-      messageId: uniqueMessageId,
-      date: new Date(),
-      headers: {
-        'X-Entity-Ref-ID': (metadata?.requestId as string) || uniqueMessageId,
-        'Auto-Submitted': 'auto-generated',
-        'X-Auto-Response-Suppress': 'All',
-      },
-    });
-
-    const acceptedList = (info.accepted || []).map((a: any) =>
-      typeof a === 'string' ? a : a.address || String(a)
-    );
-    const rejectedList = (info.rejected || []).map((r: any) =>
-      typeof r === 'string' ? r : r.address || String(r)
-    );
-
-    const wasAccepted = acceptedList.some(
-      (a: string) => a.toLowerCase() === to.toLowerCase()
-    );
-    const wasRejected = rejectedList.some(
-      (r: string) => r.toLowerCase() === to.toLowerCase()
-    );
-
-    if (wasRejected || !wasAccepted) {
-      const rejectReason = wasRejected
-        ? `Recipient rejected by SMTP server: ${info.response || 'Unknown rejection'}`
-        : `Recipient was not accepted by SMTP server: ${info.response || 'Unconfirmed delivery'}`;
-
-      return {
-        success: false,
-        deliveryStatus: 'FAILED',
-        error: rejectReason,
-        messageId: info.messageId || uniqueMessageId,
-        response: info.response,
-        envelope,
-        accepted: acceptedList,
-        rejected: rejectedList,
-      };
-    }
-
-    return {
-      success: true,
-      deliveryStatus: 'SENT',
-      messageId: info.messageId || uniqueMessageId,
-      response: info.response,
-      envelope,
-      accepted: acceptedList,
-      rejected: rejectedList,
-    };
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Unknown SMTP dispatch error';
-    return { success: false, deliveryStatus: 'FAILED', error: msg };
-  }
+  return {
+    success: result.success,
+    deliveryStatus: result.deliveryStatus,
+    provider: result.provider,
+    error: result.errorMessage,
+    devCaptured: result.deliveryStatus === 'DEV_CAPTURED',
+    messageId: result.providerMessageId,
+    response: result.providerMessageId
+      ? `Provider [${result.provider}] accepted: ${result.providerMessageId}`
+      : result.errorCode,
+    envelope: result.envelope || { from: process.env.EMAIL_FROM || 'system@sitework.local', to: [to] },
+    accepted: result.accepted || (result.success ? [to] : []),
+    rejected: result.rejected || (!result.success ? [to] : []),
+  };
 }
+
+export const dispatchAccessRequestEmail = sendAccessRequestNotification;
+
