@@ -182,6 +182,18 @@ function LoginForm() {
               {loading ? 'Authenticating...' : 'Sign In'}
               <ArrowRight className="ml-2 w-4 h-4 shrink-0" />
             </button>
+
+            <div className="pt-3 border-t border-slate-100 dark:border-zinc-800/80 text-center">
+              <p className="text-xs text-slate-500 dark:text-zinc-400 font-medium">
+                Need an account?{' '}
+                <Link
+                  href={`/request-access${nextParam ? `?next=${encodeURIComponent(nextParam)}` : ''}`}
+                  className="font-bold text-slate-900 dark:text-[#1ED760] hover:underline transition-colors ml-1"
+                >
+                  Request Access
+                </Link>
+              </p>
+            </div>
           </form>
         </div>
       </div>

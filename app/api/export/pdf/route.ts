@@ -15,6 +15,7 @@ import {
   generateDailyAttendancePDF,
   generateWeeklyAttendancePDF,
   generateMonthlyAttendancePDF,
+  generateMonthlyAttendanceCalendarPDF,
   generateFinancialPDF,
   generateMonthlyFinancialPDF,
   generateRoleReportPDF,
@@ -66,6 +67,8 @@ export async function POST(req: Request) {
       title,
       monthLabel,
       roleId,
+      roleIds,
+      viewMode,
       categoryId,
       transactionType,
       debitCategory,
@@ -211,22 +214,38 @@ export async function POST(req: Request) {
           break;
         }
 
+        case 'MONTHLY_CALENDAR':
         case 'MONTHLY_COMPREHENSIVE':
         case 'MONTHLY_ATTENDANCE': {
           if (!sDate || !eDate) {
             return NextResponse.json({ error: 'startDate and endDate are required for monthly attendance' }, { status: 400 });
           }
+          const isCalendarView = rawType === 'MONTHLY_CALENDAR' || viewMode === 'calendar';
           const records = getAttendanceByDateRange(site.id, sDate, eDate);
-          pdfBuffer = generateMonthlyAttendancePDF(
-            {
-              siteName: site.name,
-              siteCode: site.code,
-              reportTitle: title || 'Monthly Attendance Report',
-              periodLabel: monthLabel || `${sDate} to ${eDate}`,
-            },
-            { records, monthLabel: monthLabel || `${sDate} to ${eDate}`, startDate: sDate, endDate: eDate }
-          );
-          filename = sanitizeReportFilename(site.name, `Monthly_Attendance_${(monthLabel || sDate).replace(/\s+/g, '_')}`);
+
+          if (isCalendarView) {
+            pdfBuffer = generateMonthlyAttendanceCalendarPDF(
+              {
+                siteName: site.name,
+                siteCode: site.code,
+                reportTitle: title || 'Monthly Attendance Calendar',
+                periodLabel: monthLabel || `${sDate} to ${eDate}`,
+              },
+              { records, monthLabel: monthLabel || `${sDate} to ${eDate}`, startDate: sDate, endDate: eDate }
+            );
+            filename = sanitizeReportFilename(site.name, `Monthly_Calendar_${(monthLabel || sDate).replace(/\s+/g, '_')}`);
+          } else {
+            pdfBuffer = generateMonthlyAttendancePDF(
+              {
+                siteName: site.name,
+                siteCode: site.code,
+                reportTitle: title || 'Monthly Attendance Report',
+                periodLabel: monthLabel || `${sDate} to ${eDate}`,
+              },
+              { records, monthLabel: monthLabel || `${sDate} to ${eDate}`, startDate: sDate, endDate: eDate }
+            );
+            filename = sanitizeReportFilename(site.name, `Monthly_Attendance_${(monthLabel || sDate).replace(/\s+/g, '_')}`);
+          }
           break;
         }
 
@@ -295,48 +314,76 @@ export async function POST(req: Request) {
         }
 
         case 'LABOUR_WORKER':
+        case 'ROLE':
         case 'ROLE_REPORT': {
           const isLabourWorker = rawType === 'LABOUR_WORKER';
-          const effectiveRoleId = isLabourWorker ? 'ALL' : roleId;
+          const rawRoleIds: string[] = isLabourWorker
+            ? ['ALL']
+            : Array.isArray(roleIds)
+            ? roleIds
+            : Array.isArray(roleId)
+            ? roleId
+            : roleId
+            ? [roleId]
+            : ['ALL'];
 
-          if (!effectiveRoleId) {
-            return NextResponse.json({ error: 'roleId is required for role report' }, { status: 400 });
-          }
           if (!sDate || !eDate) {
             return NextResponse.json({ error: 'startDate and endDate are required for role report' }, { status: 400 });
           }
-          const isAll = effectiveRoleId === 'ALL';
+
+          const isAll = rawRoleIds.includes('ALL') || rawRoleIds.length === 0;
           const records = isAll
             ? getAttendanceByDateRange(site.id, sDate, eDate)
-            : getAttendanceByDateRange(site.id, sDate, eDate, undefined, effectiveRoleId);
-          
-          let roleName = isAll ? 'All Roles (All Workers)' : 'Role';
-          let categoryName = isAll ? 'All Categories' : 'General';
-          if (!isAll) {
-            if (records.length > 0 && records[0].role_name) {
-              roleName = records[0].role_name;
-              categoryName = records[0].category_name || 'General';
-            } else {
-              const allRoles = getAllRoles(site.id);
-              const matched = allRoles.find((r) => r.id === effectiveRoleId);
-              if (matched) {
-                roleName = matched.name;
-                categoryName = matched.category_name || 'General';
-              }
-            }
-          }
+            : getAttendanceByDateRange(site.id, sDate, eDate, undefined, rawRoleIds);
+
+          const allRoles = getAllRoles(site.id);
+          const matchedRoles = allRoles.filter((r) => rawRoleIds.includes(r.id));
+          const roleNames: string[] = isAll
+            ? ['All Roles']
+            : matchedRoles.length > 0
+            ? matchedRoles.map((r) => r.name)
+            : Array.from(new Set(records.map((r) => r.role_name).filter((n): n is string => Boolean(n))));
+
+          const isMulti = !isAll && roleNames.length > 1;
+          const roleName = isAll
+            ? 'All Roles (All Workers)'
+            : roleNames.length > 0
+            ? roleNames.join(', ')
+            : 'Role';
+
+          const categoryName = isAll
+            ? 'All Categories'
+            : matchedRoles[0]?.category_name || records[0]?.category_name || 'General';
 
           pdfBuffer = generateRoleReportPDF(
             {
               siteName: site.name,
               siteCode: site.code,
-              reportTitle: isAll ? (title || 'All Workforce Roles & Deployment') : (title || 'Role Breakdown Report'),
+              reportTitle: isAll
+                ? (title || 'All Workforce Roles & Deployment')
+                : (title || (isMulti ? 'Workforce Deployment: Role Breakdown' : 'Role Breakdown Report')),
               periodLabel: monthLabel || `${sDate} to ${eDate}`,
-              filtersSummary: isAll ? 'All Roles & Categories' : `Role: ${roleName}`,
+              filtersSummary: isAll
+                ? 'All Roles & Categories'
+                : isMulti
+                ? `Roles: ${roleName}`
+                : `Role: ${roleName}`,
             },
-            { roleName, categoryName, records, isAllRoles: isAll }
+            {
+              roleName,
+              categoryName,
+              records,
+              isAllRoles: isAll,
+              roleNames,
+              isMultiRole: isMulti,
+            }
           );
-          filename = sanitizeReportFilename(site.name, `Role_${roleName.replace(/\s+/g, '_')}_${(monthLabel || sDate).replace(/\s+/g, '_')}`);
+          const safeRoleFilename = isAll
+            ? 'All_Roles'
+            : isMulti
+            ? 'Multi_Role'
+            : (roleNames[0] || 'Role').replace(/\s+/g, '_');
+          filename = sanitizeReportFilename(site.name, `Role_${safeRoleFilename}_${(monthLabel || sDate).replace(/\s+/g, '_')}`);
           break;
         }
 

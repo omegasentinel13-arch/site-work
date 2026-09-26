@@ -258,6 +258,22 @@ function runMigrations(db: DatabaseSync): void {
     for (const def of STANDARD_PERMISSION_DEFINITIONS) {
       insertPermStmt.run(def.id, def.page_id, def.action_id, def.display_name, def.description, def.is_site_scoped ? 1 : 0);
     }
+
+    // Ensure initial prime governance administrators possess explicit access request review permissions
+    const primeUsers = db.prepare(`
+      SELECT id, username FROM users 
+      WHERE username IN ('Iamadmin', 'abadmin')
+    `).all() as Array<{ id: string; username: string }>;
+
+    const insertOverrideStmt = db.prepare(`
+      INSERT OR IGNORE INTO user_permission_overrides (id, user_id, permission_id, site_id, effect, granted_by, created_at, updated_at)
+      VALUES (?, ?, ?, NULL, 'ALLOW', ?, datetime('now'), datetime('now'))
+    `);
+
+    for (const u of primeUsers) {
+      insertOverrideStmt.run(`upo-${u.id}-perm-gov-access-review-global`, u.id, 'perm-gov-access-review', u.id);
+      insertOverrideStmt.run(`upo-${u.id}-perm-gov-access-view-global`, u.id, 'perm-gov-access-view', u.id);
+    }
   } catch (err) {
     console.error('Error migrating permission tables:', err);
   }
@@ -352,6 +368,55 @@ function runMigrations(db: DatabaseSync): void {
   } catch (err) {
     console.error('Error migrating site routing tables:', err);
   }
+
+  // 11. Ensure access_requests and access_request_notifications tables exist
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS access_requests (
+        id TEXT PRIMARY KEY,
+        requester_full_name TEXT NOT NULL,
+        requested_username TEXT NOT NULL,
+        requested_email TEXT NOT NULL,
+        requested_role_id TEXT NOT NULL,
+        requested_role_name_snapshot TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'APPROVED', 'DENIED', 'CANCELLED', 'EXPIRED')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        reviewed_at TEXT,
+        reviewed_by TEXT REFERENCES users(id),
+        reviewer_role TEXT,
+        review_reason TEXT,
+        denial_reason TEXT,
+        approval_timestamp TEXT,
+        expires_at TEXT,
+        request_metadata TEXT,
+        status_token_hash TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_access_requests_status ON access_requests(status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_access_requests_username ON access_requests(requested_username);
+      CREATE INDEX IF NOT EXISTS idx_access_requests_email ON access_requests(requested_email);
+
+      CREATE TABLE IF NOT EXISTS access_request_notifications (
+        id TEXT PRIMARY KEY,
+        access_request_id TEXT NOT NULL REFERENCES access_requests(id) ON DELETE CASCADE,
+        recipient_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        recipient_email TEXT NOT NULL,
+        notification_type TEXT NOT NULL CHECK(notification_type IN ('NEW_REQUEST', 'APPROVAL', 'DENIAL', 'REMINDER')),
+        delivery_status TEXT NOT NULL CHECK(delivery_status IN ('PENDING', 'SENT', 'FAILED', 'DEV_CAPTURED')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        sent_at TEXT,
+        failed_at TEXT,
+        failure_reason TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_arn_request_id ON access_request_notifications(access_request_id);
+      CREATE INDEX IF NOT EXISTS idx_arn_recipient ON access_request_notifications(recipient_user_id);
+    `);
+  } catch (err) {
+    console.error('Error migrating access request tables:', err);
+  }
 }
 
 export function getDb(allowLocked = false): DatabaseSync {
@@ -378,6 +443,7 @@ export function getDb(allowLocked = false): DatabaseSync {
   // Enable WAL mode & foreign keys for high-concurrency ACID transactions
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA foreign_keys = ON;');
+  db.exec('PRAGMA busy_timeout = 5000;');
 
   // Initialize schema if not present
   const schemaPath = path.join(process.cwd(), 'lib', 'db', 'schema.sql');

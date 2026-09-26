@@ -157,7 +157,7 @@ export function getAttendanceByDateRange(
   startDate: string,
   endDate: string,
   categoryId?: string,
-  roleId?: string
+  roleId?: string | string[]
 ): AttendanceDbRecord[] {
   const db = getDb();
   let query = `
@@ -191,8 +191,19 @@ export function getAttendanceByDateRange(
     params.push(categoryId);
   }
   if (roleId) {
-    query += ` AND r.id = ?`;
-    params.push(roleId);
+    if (Array.isArray(roleId)) {
+      if (roleId.length === 1) {
+        query += ` AND r.id = ?`;
+        params.push(roleId[0]);
+      } else if (roleId.length > 1) {
+        const placeholders = roleId.map(() => '?').join(', ');
+        query += ` AND r.id IN (${placeholders})`;
+        params.push(...roleId);
+      }
+    } else {
+      query += ` AND r.id = ?`;
+      params.push(roleId);
+    }
   }
 
   query += ` ORDER BY a.date ASC, c.sort_order ASC, r.sort_order ASC, r.name ASC`;

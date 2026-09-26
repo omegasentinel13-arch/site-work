@@ -20,7 +20,8 @@ import {
   Users,
   History,
   ShieldCheck,
-  Shield
+  Shield,
+  UserCheck
 } from 'lucide-react';
 import { clsx } from 'clsx';
 

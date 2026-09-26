@@ -145,7 +145,7 @@ export default function DashboardPage() {
         setFinanceStats({
           totalCreditPaise: sum.totalCreditPaise || 0,
           suppliesDebitPaise: sum.suppliesDebitPaise || 0,
-          specialDebitPaise: sum.specialWorkerTaskDebitPaise || 0,
+          specialDebitPaise: (sum.specialWorkerTaskDebitPaise || 0) + (sum.salaryDebitPaise || 0),
           totalDebitPaise: sum.totalDebitPaise || 0,
           balancePaise: sum.closingBalancePaise || 0,
         });
@@ -457,27 +457,35 @@ export default function DashboardPage() {
         <div className="p-4 sm:p-5">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3">
             <div className="p-3 sm:p-3.5 bg-emerald-50 dark:bg-[#0F291B] rounded-lg border border-slate-900 dark:border-[#1A7F3C]">
-              <span className="text-[10px] sm:text-xs font-bold text-emerald-800 dark:text-[#1ED760] uppercase block truncate">Credit</span>
+              <span className="text-[10px] sm:text-xs font-bold text-emerald-800 dark:text-[#1ED760] uppercase block leading-tight">
+                TOTAL INCOMES <span className="text-[9px] sm:text-[10px] opacity-90 block sm:inline font-semibold">(CREDIT)</span>
+              </span>
               <span className="text-base sm:text-xl font-black text-emerald-900 dark:text-[#1ED760] block mt-0.5 break-words">{formatINR(financeStats.totalCreditPaise)}</span>
-              <span className="text-[10px] text-emerald-700 dark:text-[#1DB954] block mt-0.5 truncate">Funding / Received</span>
+              <span className="text-[10px] text-emerald-700 dark:text-[#1DB954] block mt-0.5 truncate">Credit / inflow</span>
             </div>
 
             <div className="p-3 sm:p-3.5 bg-amber-50 dark:bg-[#241C12] rounded-lg border border-slate-900 dark:border-[#684C12]">
-              <span className="text-[10px] sm:text-xs font-bold text-amber-800 dark:text-amber-300 uppercase block truncate">Supplies Debit</span>
+              <span className="text-[10px] sm:text-xs font-bold text-amber-800 dark:text-amber-300 uppercase block leading-tight">
+                SUPPLIES EXPENSES <span className="text-[9px] sm:text-[10px] opacity-90 block sm:inline font-semibold">(DEBIT)</span>
+              </span>
               <span className="text-base sm:text-xl font-black text-amber-900 dark:text-amber-200 block mt-0.5 break-words">{formatINR(financeStats.suppliesDebitPaise)}</span>
-              <span className="text-[10px] text-amber-700 dark:text-amber-400 block mt-0.5 truncate">Materials</span>
+              <span className="text-[10px] text-amber-700 dark:text-amber-400 block mt-0.5 truncate">Debit / materials</span>
             </div>
 
             <div className="p-3 sm:p-3.5 bg-indigo-50 dark:bg-[#1A182E] rounded-lg border border-slate-900 dark:border-[#3B3860]">
-              <span className="text-[10px] sm:text-xs font-bold text-indigo-800 dark:text-indigo-300 uppercase block truncate">Special Work Debit</span>
+              <span className="text-[10px] sm:text-xs font-bold text-indigo-800 dark:text-indigo-300 uppercase block leading-tight">
+                WORK EXPENSES <span className="text-[9px] sm:text-[10px] opacity-90 block sm:inline font-semibold">(DEBIT)</span>
+              </span>
               <span className="text-base sm:text-xl font-black text-indigo-900 dark:text-indigo-200 block mt-0.5 break-words">{formatINR(financeStats.specialDebitPaise)}</span>
-              <span className="text-[10px] text-indigo-700 dark:text-indigo-400 block mt-0.5 truncate">Task Expense</span>
+              <span className="text-[10px] text-indigo-700 dark:text-indigo-400 block mt-0.5 truncate">Debit / work expenses</span>
             </div>
 
             <div className="p-3 sm:p-3.5 bg-rose-50 dark:bg-[#2A1215] rounded-lg border border-slate-900 dark:border-[#6E1C24]">
-              <span className="text-[10px] sm:text-xs font-bold text-rose-800 dark:text-rose-300 uppercase block truncate">Total Debit</span>
+              <span className="text-[10px] sm:text-xs font-bold text-rose-800 dark:text-rose-300 uppercase block leading-tight">
+                TOTAL EXPENSES <span className="text-[9px] sm:text-[10px] opacity-90 block sm:inline font-semibold">(DEBIT)</span>
+              </span>
               <span className="text-base sm:text-xl font-black text-rose-900 dark:text-rose-300 block mt-0.5 break-words">{formatINR(financeStats.totalDebitPaise)}</span>
-              <span className="text-[10px] text-rose-700 dark:text-rose-400 block mt-0.5 truncate">Outflow</span>
+              <span className="text-[10px] text-rose-700 dark:text-rose-400 block mt-0.5 truncate">Total debit / outflow</span>
             </div>
 
             <div className="col-span-2 sm:col-span-3 lg:col-span-1 p-3 sm:p-3.5 bg-slate-900 dark:bg-[#202225] rounded-lg border border-slate-900 dark:border-[#4A4D52] text-white">

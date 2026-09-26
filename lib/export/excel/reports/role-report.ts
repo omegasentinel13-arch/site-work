@@ -22,14 +22,19 @@ export async function generateRoleReportExcel(
   const wb = createExcelJsWorkbook();
   const ws = wb.addWorksheet('Workforce Deployment');
   const isAll = !!data.isAllRoles;
+  const isMulti = !!data.isMultiRole || (Array.isArray(data.roleNames) && data.roleNames.length > 1);
 
-  const totalCols = isAll ? 9 : 7;
+  const totalCols = (isAll || isMulti) ? 9 : 7;
   const sharedSubtitle = `Site: ${meta.siteName}${meta.siteCode ? ` (${meta.siteCode})` : ''} | Period: ${meta.periodLabel || 'All Recorded'}`;
 
   // 1. Corporate Title Banner
   applyExcelJsTitleBanner(
     ws,
-    isAll ? 'All Workforce Roles & Deployment' : `Workforce Deployment: ${data.roleName}`,
+    isAll
+      ? 'All Workforce Roles & Deployment'
+      : isMulti && data.roleNames && data.roleNames.length > 0
+      ? `Workforce Deployment: ${data.roleNames.join(', ')}`
+      : `Workforce Deployment: ${data.roleName}`,
     sharedSubtitle,
     totalCols
   );
@@ -64,7 +69,7 @@ export async function generateRoleReportExcel(
 
   // 4. Table Headers
   const headerRow = kpiRow + 1;
-  const columns: Array<{ header: string; width: number; align: 'left' | 'center' | 'right' }> = isAll
+  const columns: Array<{ header: string; width: number; align: 'left' | 'center' | 'right' }> = (isAll || isMulti)
     ? [
         { header: 'Date', width: 14, align: 'center' },
         { header: 'Role', width: 28, align: 'left' },
@@ -91,7 +96,7 @@ export async function generateRoleReportExcel(
   const dataStartRow = headerRow + 1;
   let currentRow = dataStartRow;
 
-  const rowAligns: Array<'left' | 'center' | 'right'> = isAll
+  const rowAligns: Array<'left' | 'center' | 'right'> = (isAll || isMulti)
     ? ['center', 'left', 'left', 'right', 'center', 'center', 'center', 'right', 'right']
     : ['center', 'right', 'center', 'center', 'center', 'right', 'right'];
 
@@ -105,7 +110,7 @@ export async function generateRoleReportExcel(
     currentRow++;
 
     const totalRow = ws.getRow(currentRow);
-    if (isAll) {
+    if (isAll || isMulti) {
       totalRow.getCell(1).value = 'PERIOD TOTALS';
       totalRow.getCell(2).value = '';
       totalRow.getCell(3).value = '';
@@ -148,7 +153,7 @@ export async function generateRoleReportExcel(
     for (const r of sorted) {
       const row = ws.getRow(currentRow);
 
-      if (isAll) {
+      if (isAll || isMulti) {
         row.values = [
           r.date,
           escapeExcelFormula(r.role_name || '—'),
@@ -192,7 +197,7 @@ export async function generateRoleReportExcel(
     const dataEndRow = currentRow - 1;
     const totalRow = ws.getRow(currentRow);
 
-    if (isAll) {
+    if (isAll || isMulti) {
       const fullCol = 'E';
       const halfCol = 'F';
       const workersCol = 'G';

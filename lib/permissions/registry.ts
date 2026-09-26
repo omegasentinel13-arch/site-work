@@ -33,6 +33,7 @@ export type PageId =
   | 'PAGE_SETUP_CATEGORIES'
   | 'PAGE_SETUP_ROLES'
   | 'PAGE_SETUP_USERS'
+  | 'PAGE_ACCESS_REQUESTS'
   // Self-Service
   | 'PAGE_MY_ACCOUNT';
 
@@ -52,7 +53,8 @@ export type ActionId =
   | 'MANAGE_USERS'
   | 'RESET_PASSWORD'
   | 'CHANGE_USERNAME'
-  | 'CHANGE_RECOVERY';
+  | 'CHANGE_RECOVERY'
+  | 'ACCESS_REQUEST_REVIEW';
 
 export type RoleScopeType = 'GLOBAL' | 'ASSIGNED_SITES' | 'SPECIFIC_SITE';
 
@@ -95,6 +97,7 @@ export const REGISTERED_PAGES: Record<PageId, PageMetadata> = {
   PAGE_GLOBAL_ARCHIVE: { id: 'PAGE_GLOBAL_ARCHIVE', displayName: 'Global Archive', route: '/setup/archive', module: 'Governance', isSiteScoped: false, unhideable: false },
   PAGE_GLOBAL_RECYCLE_BIN: { id: 'PAGE_GLOBAL_RECYCLE_BIN', displayName: 'Global Recycle Bin', route: '/setup/recycle-bin', module: 'Governance', isSiteScoped: false, unhideable: false },
   PAGE_AUDIT_TRAIL: { id: 'PAGE_AUDIT_TRAIL', displayName: 'Audit Trail', route: '/setup/audit', module: 'Governance', isSiteScoped: false, unhideable: false },
+  PAGE_ACCESS_REQUESTS: { id: 'PAGE_ACCESS_REQUESTS', displayName: 'Access Requests', route: '/setup/users?accessRequests=true', module: 'Governance', isSiteScoped: false, unhideable: false },
   PAGE_SETUP_SITES: { id: 'PAGE_SETUP_SITES', displayName: 'Site Management', route: '/setup/sites', module: 'System Config', isSiteScoped: false, unhideable: false },
   PAGE_SETUP_CATEGORIES: { id: 'PAGE_SETUP_CATEGORIES', displayName: 'Category Management', route: '/setup/categories', module: 'System Config', isSiteScoped: false, unhideable: false },
   PAGE_SETUP_ROLES: { id: 'PAGE_SETUP_ROLES', displayName: 'Role Management', route: '/setup/roles', module: 'System Config', isSiteScoped: false, unhideable: false },
@@ -149,6 +152,8 @@ export const STANDARD_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
   { id: 'perm-gov-recycle-purge', page_id: 'PAGE_GLOBAL_RECYCLE_BIN', action_id: 'PERMANENT_DELETE', display_name: 'Permanently Purge Records', description: 'Hard wipe records from the database', is_site_scoped: 0 },
   { id: 'perm-gov-audit-view', page_id: 'PAGE_AUDIT_TRAIL', action_id: 'VIEW', display_name: 'View Audit Trail', description: 'Inspect security and data mutation logs', is_site_scoped: 0 },
   { id: 'perm-gov-audit-restore', page_id: 'PAGE_AUDIT_TRAIL', action_id: 'RESTORE', display_name: 'Execute Audit Recovery', description: 'Controlled recovery and restoration of eligible historical entities', is_site_scoped: 0 },
+  { id: 'perm-gov-access-view', page_id: 'PAGE_ACCESS_REQUESTS', action_id: 'VIEW', display_name: 'View Access Requests', description: 'Inspect incoming account requests and approval history', is_site_scoped: 0 },
+  { id: 'perm-gov-access-review', page_id: 'PAGE_ACCESS_REQUESTS', action_id: 'ACCESS_REQUEST_REVIEW', display_name: 'Access Request Review & Approval', description: 'Review, accept, or deny access requests and receive notification emails', is_site_scoped: 0 },
 
   // System Setup (Sites, Categories, Roles)
   { id: 'perm-set-site-view', page_id: 'PAGE_SETUP_SITES', action_id: 'VIEW', display_name: 'View Sites', description: 'List project site profiles', is_site_scoped: 0 },
@@ -168,6 +173,7 @@ export const STANDARD_PERMISSION_DEFINITIONS: PermissionDefinition[] = [
   { id: 'perm-set-user-perms', page_id: 'PAGE_SETUP_USERS', action_id: 'MANAGE_PERMISSIONS', display_name: 'Manage Permissions', description: 'Configure role baselines and user overrides', is_site_scoped: 0 },
   { id: 'perm-set-user-sites', page_id: 'PAGE_SETUP_USERS', action_id: 'ASSIGN_SITE', display_name: 'Assign Sites', description: 'Assign users to sites via site_users', is_site_scoped: 0 },
   { id: 'perm-set-user-reset', page_id: 'PAGE_SETUP_USERS', action_id: 'RESET_PASSWORD', display_name: 'Reset User Password', description: 'Trigger password recovery or admin reset', is_site_scoped: 0 },
+  { id: 'perm-set-user-access-review', page_id: 'PAGE_SETUP_USERS', action_id: 'ACCESS_REQUEST_REVIEW', display_name: 'Access Request Review Delegation', description: 'Allows this administrator to receive and review new account access requests', is_site_scoped: 0 },
 
   // My Account (Self-Service)
   { id: 'perm-acc-view', page_id: 'PAGE_MY_ACCOUNT', action_id: 'VIEW', display_name: 'View My Account', description: 'Inspect own profile, username, and recovery info', is_site_scoped: 0 },

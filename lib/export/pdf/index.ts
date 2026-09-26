@@ -8,6 +8,7 @@ export * from './tables';
 export { generateDailyAttendancePDF } from './reports/daily-attendance';
 export { generateWeeklyAttendancePDF } from './reports/weekly-attendance';
 export { generateMonthlyAttendancePDF } from './reports/monthly-attendance';
+export { generateMonthlyAttendanceCalendarPDF } from './reports/monthly-attendance-calendar';
 export { generateFinancialPDF } from './reports/financial-ledger';
 export { generateMonthlyFinancialPDF } from './reports/monthly-finance';
 export { generateRoleReportPDF } from './reports/role-report';

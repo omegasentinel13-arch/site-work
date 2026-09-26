@@ -17,7 +17,46 @@ export function isSmtpConfigured(): boolean {
   return Boolean(host && user && pass);
 }
 
-function getSmtpConfig(): SmtpConfig | null {
+export function normalizeFromAddress(fromRaw?: string, fallbackUser?: string): string {
+  const fallback = fallbackUser
+    ? `"AB CONSTRUCTIONS & INTERIORS — SITE WORK" <${fallbackUser}>`
+    : '"AB CONSTRUCTIONS & INTERIORS — SITE WORK" <no-reply@sitework.local>';
+
+  if (!fromRaw || !fromRaw.trim()) {
+    return fallback;
+  }
+
+  const trimmed = fromRaw.trim();
+  // Strip outer quotes if any
+  const unquoted = (trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    ? trimmed.slice(1, -1).trim()
+    : trimmed;
+
+  // Check if it matches: Display Name <email@domain>
+  const angleMatch = unquoted.match(/^(.*?)\s*<([^\s@]+@[^\s@]+\.[^\s@]+)>\s*$/);
+  if (angleMatch) {
+    const name = angleMatch[1].replace(/^["']|["']$/g, '').trim() || 'AB CONSTRUCTIONS & INTERIORS';
+    const email = angleMatch[2].trim();
+    return `"${name}" <${email}>`;
+  }
+
+  // Check if it matches: Display Name email@domain
+  const trailingEmailMatch = unquoted.match(/^(.*?)\s+([^\s@]+@[^\s@]+\.[^\s@]+)$/);
+  if (trailingEmailMatch) {
+    const name = trailingEmailMatch[1].replace(/^["']|["']$/g, '').trim() || 'AB CONSTRUCTIONS & INTERIORS';
+    const email = trailingEmailMatch[2].trim();
+    return `"${name}" <${email}>`;
+  }
+
+  // Check if it is purely an email: email@domain
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(unquoted)) {
+    return `"AB CONSTRUCTIONS & INTERIORS" <${unquoted}>`;
+  }
+
+  return fallback;
+}
+
+export function getSmtpConfig(): SmtpConfig | null {
   if (!isSmtpConfigured()) {
     return null;
   }
@@ -25,7 +64,7 @@ function getSmtpConfig(): SmtpConfig | null {
   const port = parseInt(process.env.SMTP_PORT || '587', 10);
   const secure = process.env.SMTP_SECURE === 'true' || port === 465;
   const user = process.env.SMTP_USER!.trim();
-  const from = process.env.SMTP_FROM?.trim() || `"AB CONSTRUCTIONS & INTERIORS — SITE WORK" <${user}>`;
+  const from = normalizeFromAddress(process.env.SMTP_FROM, user);
 
   return {
     host: process.env.SMTP_HOST!.trim(),

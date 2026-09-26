@@ -55,6 +55,14 @@ export function evaluateLegacyFallback(
     return false;
   }
 
+  // Access Request Review requires explicit permission override for Standard Admin
+  if (page === 'PAGE_ACCESS_REQUESTS' || action === 'ACCESS_REQUEST_REVIEW') {
+    if (isGlobalAdmin) {
+      return true;
+    }
+    return false;
+  }
+
   if (role === 'ADMIN' || isGlobalAdmin) {
     return true;
   }

@@ -65,6 +65,8 @@ export interface RoleReportExcelData {
   categoryName: string;
   records: AttendanceDbRecord[];
   isAllRoles?: boolean;
+  roleNames?: string[];
+  isMultiRole?: boolean;
 }
 
 export interface CategoryReportExcelData {

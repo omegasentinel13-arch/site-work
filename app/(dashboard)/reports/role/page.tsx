@@ -375,6 +375,17 @@ function WorkforceAnalyticsContent() {
     });
   }, [attendanceRecords, isAllSelected, selectedCategoryIds, selectedRoleIds]);
 
+  // Canonical multi-role export IDs derived from active selection
+  const activeExportRoleIds = useMemo(() => {
+    if (isAllSelected) return ['ALL'];
+    if (selectedRoleIds.size > 0) return Array.from(selectedRoleIds);
+    if (selectedCategoryIds.size > 0) {
+      const catRoles = roles.filter((r) => selectedCategoryIds.has(r.category_id)).map((r) => r.id);
+      return catRoles.length > 0 ? catRoles : ['ALL'];
+    }
+    return ['ALL'];
+  }, [isAllSelected, selectedRoleIds, selectedCategoryIds, roles]);
+
   // Overall KPI Metrics
   const overallMetrics = useMemo(() => {
     const totalFullDays = filteredRecords.reduce((sum, r) => sum + r.full_day_count, 0);
@@ -805,7 +816,8 @@ function WorkforceAnalyticsContent() {
                   payload={{
                     siteId: selectedSiteId || '',
                     type: 'ROLE_REPORT',
-                    roleId: isAllSelected ? 'ALL' : (Array.from(selectedRoleIds)[0] || 'ALL'),
+                    roleIds: activeExportRoleIds,
+                    roleId: activeExportRoleIds.length === 1 ? activeExportRoleIds[0] : (activeExportRoleIds.includes('ALL') ? 'ALL' : 'MULTI'),
                     startDate: appliedFromDate,
                     endDate: appliedToDate,
                     monthLabel: `${appliedFromDate} to ${appliedToDate}`,
@@ -817,7 +829,8 @@ function WorkforceAnalyticsContent() {
                   payload={{
                     siteId: selectedSiteId || '',
                     type: 'ROLE_REPORT',
-                    roleId: isAllSelected ? 'ALL' : (Array.from(selectedRoleIds)[0] || 'ALL'),
+                    roleIds: activeExportRoleIds,
+                    roleId: activeExportRoleIds.length === 1 ? activeExportRoleIds[0] : (activeExportRoleIds.includes('ALL') ? 'ALL' : 'MULTI'),
                     startDate: appliedFromDate,
                     endDate: appliedToDate,
                     monthLabel: `${appliedFromDate} to ${appliedToDate}`,
@@ -1170,7 +1183,8 @@ function WorkforceAnalyticsContent() {
                   payload={{
                     siteId: selectedSiteId || '',
                     type: 'ROLE_REPORT',
-                    roleId: isAllSelected ? 'ALL' : (Array.from(selectedRoleIds)[0] || 'ALL'),
+                    roleIds: activeExportRoleIds,
+                    roleId: activeExportRoleIds.length === 1 ? activeExportRoleIds[0] : (activeExportRoleIds.includes('ALL') ? 'ALL' : 'MULTI'),
                     startDate: `${selectedYear}-01-01`,
                     endDate: `${selectedYear}-12-31`,
                     monthLabel: `Year ${selectedYear}`,
@@ -1182,7 +1196,8 @@ function WorkforceAnalyticsContent() {
                   payload={{
                     siteId: selectedSiteId || '',
                     type: 'ROLE_REPORT',
-                    roleId: isAllSelected ? 'ALL' : (Array.from(selectedRoleIds)[0] || 'ALL'),
+                    roleIds: activeExportRoleIds,
+                    roleId: activeExportRoleIds.length === 1 ? activeExportRoleIds[0] : (activeExportRoleIds.includes('ALL') ? 'ALL' : 'MULTI'),
                     startDate: `${selectedYear}-01-01`,
                     endDate: `${selectedYear}-12-31`,
                     monthLabel: `Year ${selectedYear}`,

@@ -36,6 +36,10 @@ async function handleUserOverrideMutation(req: Request) {
         return NextResponse.json({ error: 'Valid userId is required' }, { status: 400 });
       }
 
+      if (userId === session.userId) {
+        return NextResponse.json({ error: 'Administrators cannot modify their own permission overrides (Self-modification prevented).' }, { status: 403 });
+      }
+
       const targetUser = getUserById(userId, null);
       if (!targetUser) {
         return NextResponse.json({ error: `User not found: ${userId}` }, { status: 404 });
@@ -48,6 +52,15 @@ async function handleUserOverrideMutation(req: Request) {
 
       if (!canManageAuthority(session, targetUser) && session.authorityTier !== 'KING_MAKER' && !isSuperiorPrime(session)) {
         return NextResponse.json({ error: 'Insufficient authority to configure permissions for this user' }, { status: 403 });
+      }
+
+      // Check if changes include ACCESS_REQUEST_REVIEW
+      const hasAccessReview = changes.some((c: any) => {
+        const pDef = PermissionRepository.getPermissionDefinition(c.permissionId);
+        return pDef && (pDef.action_id === 'ACCESS_REQUEST_REVIEW' || pDef.page_id === 'PAGE_ACCESS_REQUESTS');
+      });
+      if (hasAccessReview && session.authorityTier !== 'KING_MAKER' && session.authorityTier !== 'SUPERIOR_PRIME' && session.authorityTier !== 'CLIENT_PRIME') {
+        return NextResponse.json({ error: 'Only Prime Administrators can grant or delegate Access Request Review permissions.' }, { status: 403 });
       }
 
       const { appliedCount, newVersion } = PermissionRepository.setUserOverridesBatch({
@@ -81,6 +94,10 @@ async function handleUserOverrideMutation(req: Request) {
       return NextResponse.json({ error: 'Valid userId is required' }, { status: 400 });
     }
 
+    if (userId === session.userId) {
+      return NextResponse.json({ error: 'Administrators cannot modify their own permission overrides (Self-modification prevented).' }, { status: 403 });
+    }
+
     if (!permissionId || typeof permissionId !== 'string') {
       return NextResponse.json({ error: 'Valid permissionId is required' }, { status: 400 });
     }
@@ -110,6 +127,11 @@ async function handleUserOverrideMutation(req: Request) {
     const permDef = PermissionRepository.getPermissionDefinition(permissionId);
     if (!permDef) {
       return NextResponse.json({ error: `Unknown permission ID: ${permissionId}` }, { status: 400 });
+    }
+
+    if ((permDef.action_id === 'ACCESS_REQUEST_REVIEW' || permDef.page_id === 'PAGE_ACCESS_REQUESTS') &&
+        session.authorityTier !== 'KING_MAKER' && session.authorityTier !== 'SUPERIOR_PRIME' && session.authorityTier !== 'CLIENT_PRIME') {
+      return NextResponse.json({ error: 'Only Prime Administrators can grant or delegate Access Request Review permissions.' }, { status: 403 });
     }
 
     // 3. Scope validation
@@ -213,6 +235,10 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: 'userId and permissionId are required' }, { status: 400 });
     }
 
+    if (userId === session.userId) {
+      return NextResponse.json({ error: 'Administrators cannot modify their own permission overrides (Self-modification prevented).' }, { status: 403 });
+    }
+
     const targetUser = getUserById(userId, null);
     if (!targetUser) {
       return NextResponse.json({ error: `User not found: ${userId}` }, { status: 404 });
@@ -230,6 +256,11 @@ export async function DELETE(req: Request) {
     const permDef = PermissionRepository.getPermissionDefinition(permissionId);
     if (!permDef) {
       return NextResponse.json({ error: `Unknown permission ID: ${permissionId}` }, { status: 400 });
+    }
+
+    if ((permDef.action_id === 'ACCESS_REQUEST_REVIEW' || permDef.page_id === 'PAGE_ACCESS_REQUESTS') &&
+        session.authorityTier !== 'KING_MAKER' && session.authorityTier !== 'SUPERIOR_PRIME' && session.authorityTier !== 'CLIENT_PRIME') {
+      return NextResponse.json({ error: 'Only Prime Administrators can modify Access Request Review permissions.' }, { status: 403 });
     }
 
     const normalizedSiteId = siteId && siteId.trim() !== '' ? siteId.trim() : null;

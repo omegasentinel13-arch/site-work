@@ -593,24 +593,26 @@ function MonthlyAttendanceReportContent() {
           <PdfExportButton
             payload={{
               siteId: selectedSiteId || '',
-              type: 'MONTHLY_ATTENDANCE',
+              type: viewMode === 'calendar' ? 'MONTHLY_CALENDAR' : 'MONTHLY_ATTENDANCE',
+              viewMode,
               startDate: startDateStr,
               endDate: endDateStr,
               monthLabel,
             }}
-            fallbackFilename={`${selectedSite?.name || 'Site'}_Monthly_${monthLabel.replace(/\s+/g, '_')}.pdf`}
+            fallbackFilename={`${selectedSite?.name || 'Site'}_Monthly_${viewMode === 'calendar' ? 'Calendar_' : ''}${monthLabel.replace(/\s+/g, '_')}.pdf`}
             label="Export PDF"
           />
 
           <ExcelExportButton
             payload={{
               siteId: selectedSiteId || '',
-              type: 'MONTHLY_ATTENDANCE',
+              type: viewMode === 'calendar' ? 'MONTHLY_CALENDAR' : 'MONTHLY_ATTENDANCE',
+              viewMode,
               startDate: startDateStr,
               endDate: endDateStr,
               monthLabel,
             }}
-            fallbackFilename={`${selectedSite?.name || 'Site'}_Monthly_${monthLabel.replace(/\s+/g, '_')}.xlsx`}
+            fallbackFilename={`${selectedSite?.name || 'Site'}_Monthly_${viewMode === 'calendar' ? 'Calendar_' : ''}${monthLabel.replace(/\s+/g, '_')}.xlsx`}
             label="Export Excel"
           />
         </div>

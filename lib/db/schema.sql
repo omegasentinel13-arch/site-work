@@ -266,3 +266,51 @@ WHERE site_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_upo_lookup 
 ON user_permission_overrides(user_id, permission_id, site_id);
 
+-- ============================================================================
+-- Access Request & Admin Approval System
+-- ============================================================================
+
+-- Access Requests Table
+CREATE TABLE IF NOT EXISTS access_requests (
+  id TEXT PRIMARY KEY,
+  requester_full_name TEXT NOT NULL,
+  requested_username TEXT NOT NULL,
+  requested_email TEXT NOT NULL,
+  requested_role_id TEXT NOT NULL,
+  requested_role_name_snapshot TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'APPROVED', 'DENIED', 'CANCELLED', 'EXPIRED')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  reviewed_at TEXT,
+  reviewed_by TEXT REFERENCES users(id),
+  reviewer_role TEXT,
+  review_reason TEXT,
+  denial_reason TEXT,
+  approval_timestamp TEXT,
+  expires_at TEXT,
+  request_metadata TEXT,
+  status_token_hash TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_access_requests_status ON access_requests(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_access_requests_username ON access_requests(requested_username);
+CREATE INDEX IF NOT EXISTS idx_access_requests_email ON access_requests(requested_email);
+
+-- Access Request Notifications Table
+CREATE TABLE IF NOT EXISTS access_request_notifications (
+  id TEXT PRIMARY KEY,
+  access_request_id TEXT NOT NULL REFERENCES access_requests(id) ON DELETE CASCADE,
+  recipient_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  recipient_email TEXT NOT NULL,
+  notification_type TEXT NOT NULL CHECK(notification_type IN ('NEW_REQUEST', 'APPROVAL', 'DENIAL', 'REMINDER')),
+  delivery_status TEXT NOT NULL CHECK(delivery_status IN ('PENDING', 'SENT', 'FAILED', 'DEV_CAPTURED')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  sent_at TEXT,
+  failed_at TEXT,
+  failure_reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_arn_request_id ON access_request_notifications(access_request_id);
+CREATE INDEX IF NOT EXISTS idx_arn_recipient ON access_request_notifications(recipient_user_id);
+

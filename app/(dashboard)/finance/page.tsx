@@ -24,6 +24,7 @@ import { DateRangeFilter, FilterValues } from '@/components/finance/DateRangeFil
 import { CreditModal } from '@/components/finance/CreditModal';
 import { DebitModal } from '@/components/finance/DebitModal';
 import { TransactionDetailsModal } from '@/components/finance/TransactionDetailsModal';
+import { parseTransactionSearch, matchTransactionSearch } from '@/lib/finance/search-parser';
 
 interface TransactionWithBalance extends FinancialDbRecord {
   runningBalancePaise: number;
@@ -156,6 +157,8 @@ export default function FinanceTransactionsPage() {
 
   // 2. Filter transactions based on active UI filters
   const filteredTransactions = useMemo<TransactionWithBalance[]>(() => {
+    const parsedSearch = parseTransactionSearch(filterValues.searchQuery);
+
     return transactionsWithRunningBalance.filter((tx) => {
       // Type Filter
       if (filterValues.type !== 'ALL' && tx.type !== filterValues.type) {
@@ -171,16 +174,9 @@ export default function FinanceTransactionsPage() {
         }
       }
 
-      // Text Search Query
+      // Advanced Search (Amount Prefix, Signed Direction, Date, or Text)
       if (filterValues.searchQuery.trim()) {
-        const q = filterValues.searchQuery.toLowerCase().trim();
-        const matchNote = (tx.reference_note || '').toLowerCase().includes(q);
-        const matchDesc = (tx.description || '').toLowerCase().includes(q);
-        const matchInv = (tx.investor_name || '').toLowerCase().includes(q);
-        const matchCat = (tx.work_category_name || '').toLowerCase().includes(q);
-        const matchRole = (tx.work_role_name || '').toLowerCase().includes(q);
-        const matchDebitCat = (tx.debit_category || '').toLowerCase().includes(q);
-        if (!matchNote && !matchDesc && !matchInv && !matchCat && !matchRole && !matchDebitCat) {
+        if (!matchTransactionSearch(tx, parsedSearch, filterValues.type)) {
           return false;
         }
       }

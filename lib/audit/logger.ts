@@ -16,7 +16,8 @@ export interface AuditEntry {
     | 'EXPORT' 
     | 'LIFECYCLE'
     | 'NAVIGATION'
-    | 'PERMISSION';
+    | 'PERMISSION'
+    | 'ACCESS_REQUEST';
   entityId: string;
   action: 
     | 'CREATE' 
@@ -91,7 +92,18 @@ export interface AuditEntry {
     | 'PERMISSION_REMOVED'
     | 'ROLE_PERMISSION_CHANGED'
     | 'PERMISSIONS_BATCH_UPDATED'
-    | 'SITE_ACCESS_CHANGED';
+    | 'SITE_ACCESS_CHANGED'
+    | 'REQUEST_SUBMITTED'
+    | 'REQUEST_VIEWED'
+    | 'REQUEST_APPROVED'
+    | 'REQUEST_DENIED'
+    | 'REQUEST_CANCELLED'
+    | 'REQUEST_EXPIRED'
+    | 'NOTIFICATION_SENT'
+    | 'NOTIFICATION_FAILED'
+    | 'EMAIL_LINK_CHANGED'
+    | 'REQUEST_HISTORY_DELETED'
+    | 'REQUEST_DELETED';
   siteId?: string | null;
   userId?: string | null;
   beforeState?: Record<string, unknown> | null;

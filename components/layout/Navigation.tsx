@@ -16,6 +16,7 @@ import {
   History,
   ShieldCheck,
   Shield,
+  UserCheck,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';

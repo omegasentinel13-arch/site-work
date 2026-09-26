@@ -576,10 +576,6 @@ export function deleteUser(
   actingAdmin: AuthorityPrincipal | string
 ): void {
   const db = getDb();
-  const user = getUserById(userId, null);
-  if (!user) {
-    throw new Error('User not found.');
-  }
 
   const actingPrincipal: AuthorityPrincipal = typeof actingAdmin === 'string'
     ? (getUserById(actingAdmin, null) || { role: 'ADMIN' })
@@ -588,9 +584,22 @@ export function deleteUser(
   const resolvedActorId = (actingAdmin as any).userId || actingPrincipal.id || (typeof actingAdmin === 'string' ? actingAdmin : null);
   const actingAdminId = resolvedActorId && getUserById(resolvedActorId, null) ? resolvedActorId : null;
 
+  const user = getUserById(userId, null);
+  if (!user) {
+    if (resolvedActorId && resolvedActorId === userId) {
+      throw new Error('You cannot delete your own active administrator account.');
+    }
+    throw new Error('User not found.');
+  }
+
   // 1. King Maker & Prime identity protection: King Maker and Primes can NEVER be deleted
   if (user.authority_tier === 'KING_MAKER' || user.authority_tier === 'SUPERIOR_PRIME' || user.authority_tier === 'CLIENT_PRIME') {
     throw new Error('King Maker and Prime identities cannot be deleted.');
+  }
+
+  // 2. Prevent self-deletion
+  if (resolvedActorId && resolvedActorId === userId) {
+    throw new Error('You cannot delete your own active administrator account.');
   }
 
   // 2. Attendance record protection: created_by or updated_by
@@ -626,6 +635,10 @@ export function deleteUser(
   }
 
   // 6. Authority check: Can acting authority delete target?
+  if (resolvedActorId && resolvedActorId === userId) {
+    throw new Error('You cannot delete your own active administrator account.');
+  }
+
   if (hasPrimeAuthority(db)) {
     if (!canDeleteUser(actingPrincipal, user)) {
       throw new Error('Insufficient authority to delete this user.');

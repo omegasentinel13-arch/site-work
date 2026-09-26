@@ -29,16 +29,38 @@ import {
   Info,
   Check,
   X,
+  CheckSquare,
+  Square,
   Layers,
   FileText,
   User as UserIcon,
   Crown,
   Users,
+  Mail,
+  Clock,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react';
 
 // ============================================================================
 // Types & Interfaces
 // ============================================================================
+
+export interface AccessRequestItem {
+  id: string;
+  requesterFullName: string;
+  requestedUsername: string;
+  requestedEmail: string;
+  requestedRoleId: string;
+  requestedRoleName: string;
+  status: 'PENDING' | 'APPROVED' | 'DENIED' | 'CANCELLED' | 'EXPIRED';
+  createdAt: string;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+  reviewerRole: string | null;
+  reviewReason: string | null;
+  denialReason: string | null;
+}
 
 export type AuthorityTier = 'KING_MAKER' | 'SUPERIOR_PRIME' | 'CLIENT_PRIME' | 'STANDARD_ADMIN' | 'STANDARD';
 
@@ -120,6 +142,7 @@ const MODULE_GROUPS = [
       'PAGE_GLOBAL_ARCHIVE',
       'PAGE_GLOBAL_RECYCLE_BIN',
       'PAGE_AUDIT_TRAIL',
+      'PAGE_ACCESS_REQUESTS',
     ],
   },
   {
@@ -132,7 +155,7 @@ const MODULE_GROUPS = [
   },
 ];
 
-const MATRIX_ACTIONS = ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'MANAGE'] as const;
+const MATRIX_ACTIONS = ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'MANAGE', 'ACCESS_REQUEST_REVIEW'] as const;
 
 export default function UsersAndAccessPage() {
   const { user: currentUser, sites } = useSite();
@@ -188,6 +211,38 @@ export default function UsersAndAccessPage() {
     isDestructive?: boolean;
     onConfirm: () => void;
   } | null>(null);
+
+  // Delete User Modal State
+  const [deleteModalUser, setDeleteModalUser] = useState<UserItem | null>(null);
+  const [deletingUser, setDeletingUser] = useState(false);
+
+  // Native Section State: 'USERS' | 'ACCESS_REQUESTS' (Roles page Category/Section pattern)
+  const [activeSection, setActiveSection] = useState<'USERS' | 'ACCESS_REQUESTS'>('USERS');
+  const [accessRequests, setAccessRequests] = useState<AccessRequestItem[]>([]);
+  const [pendingAccessCount, setPendingAccessCount] = useState<number>(0);
+  const [loadingAccessRequests, setLoadingAccessRequests] = useState(false);
+  const [accessFilter, setAccessFilter] = useState<'PENDING' | 'ALL' | 'APPROVED' | 'DENIED'>('PENDING');
+  const [accessSearch, setAccessSearch] = useState('');
+  const [canAccessRequests, setCanAccessRequests] = useState(false);
+
+  // Access Request Governance UX 2.0 Workspace State
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  const [selectedRequestIds, setSelectedRequestIds] = useState<string[]>([]);
+  const [bulkActionModal, setBulkActionModal] = useState<'APPROVE' | 'DENY' | 'DELETE' | null>(null);
+  const [bulkSiteIds, setBulkSiteIds] = useState<string[]>([]);
+  const [bulkReason, setBulkReason] = useState('');
+  const [submittingBulk, setSubmittingBulk] = useState(false);
+  const [singleActionLoading, setSingleActionLoading] = useState(false);
+  const [singleSiteIds, setSingleSiteIds] = useState<string[]>([]);
+  const [singleReason, setSingleReason] = useState('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  const selectedPendingIds = selectedRequestIds.filter(
+    (id) => accessRequests.find((r) => r.id === id)?.status === 'PENDING'
+  );
+  const selectedHistoryIds = selectedRequestIds.filter(
+    (id) => accessRequests.find((r) => r.id === id)?.status !== 'PENDING'
+  );
 
   const [currentUserTier, setCurrentUserTier] = useState<AuthorityTier>('STANDARD');
 
@@ -260,6 +315,28 @@ export default function UsersAndAccessPage() {
     }
   }, []);
 
+  const fetchAccessRequests = useCallback(async (status?: string) => {
+    setLoadingAccessRequests(true);
+    try {
+      const s = status || accessFilter;
+      const res = await fetch(`/api/admin/access-requests?status=${s}`, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        setAccessRequests(data.requests || []);
+        setPendingAccessCount(data.pendingCount || 0);
+        setCanAccessRequests(true);
+      } else {
+        if (res.status === 403 || res.status === 401) {
+          setCanAccessRequests(false);
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingAccessRequests(false);
+    }
+  }, [accessFilter]);
+
   useEffect(() => {
     fetchUsers();
     fetch('/api/auth/me')
@@ -270,7 +347,28 @@ export default function UsersAndAccessPage() {
         }
       })
       .catch(() => {});
-  }, [fetchUsers]);
+    fetchAccessRequests('PENDING');
+
+    // Check URL parameters for accessRequests section
+    const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    if (urlParams?.get('accessRequests') === 'true' || urlParams?.get('requestId')) {
+      setActiveSection('ACCESS_REQUESTS');
+      const reqId = urlParams.get('requestId');
+      if (reqId) {
+        setAccessFilter('ALL');
+        fetchAccessRequests('ALL');
+        setSelectedRequestId(reqId);
+      }
+    }
+  }, [fetchUsers, fetchAccessRequests]);
+
+  // Default site assignments for single request approval
+  useEffect(() => {
+    if (selectedRequestId && sites.length > 0) {
+      setSingleSiteIds(sites.map((s) => s.id));
+      setSingleReason('');
+    }
+  }, [selectedRequestId, sites]);
 
   // Fetch permissions & overrides for selected user
   const fetchUserPermissions = useCallback(async (userId: string) => {
@@ -999,6 +1097,242 @@ export default function UsersAndAccessPage() {
     });
   };
 
+  const handleDeleteUser = (targetUser: UserItem) => {
+    setUserFormError('');
+    setDeleteModalUser(targetUser);
+  };
+
+  const handleConfirmDeleteUser = async () => {
+    if (!deleteModalUser) return;
+    setDeletingUser(true);
+    try {
+      const res = await fetch(`/api/users?id=${encodeURIComponent(deleteModalUser.id)}`, {
+        method: 'DELETE',
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Failed to delete user');
+
+      setFeedback({ type: 'success', message: d.message || `User @${deleteModalUser.username} deleted.` });
+      const deletedId = deleteModalUser.id;
+      setDeleteModalUser(null);
+      await fetchUsers();
+      if (selectedUserId === deletedId) {
+        setSelectedUserId(null);
+      }
+    } catch (err: unknown) {
+      setFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Error deleting user' });
+    } finally {
+      setDeletingUser(false);
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // Access Request Governance UX 2.0 Actions
+  // --------------------------------------------------------------------------
+  const handleInlineApprove = async (req: AccessRequestItem) => {
+    setSingleActionLoading(true);
+    try {
+      const res = await fetch(`/api/admin/access-requests/${req.id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteIds: singleSiteIds,
+          reviewReason: singleReason.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Approval failed');
+
+      setFeedback({
+        type: 'success',
+        message: `Request #${req.id} approved. User account @${req.requestedUsername} provisioned successfully.`,
+      });
+      setSingleReason('');
+      await fetchAccessRequests(accessFilter);
+      await fetchUsers();
+    } catch (err: unknown) {
+      setFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Approval error' });
+    } finally {
+      setSingleActionLoading(false);
+    }
+  };
+
+  const handleInlineDeny = async (req: AccessRequestItem) => {
+    setSingleActionLoading(true);
+    try {
+      const res = await fetch(`/api/admin/access-requests/${req.id}/deny`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reason: singleReason.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Denial failed');
+
+      setFeedback({
+        type: 'success',
+        message: `Request #${req.id} for @${req.requestedUsername} has been denied.`,
+      });
+      setSingleReason('');
+      await fetchAccessRequests(accessFilter);
+    } catch (err: unknown) {
+      setFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Denial error' });
+    } finally {
+      setSingleActionLoading(false);
+    }
+  };
+
+  const handleInlineDelete = async (requestId: string) => {
+    setSingleActionLoading(true);
+    try {
+      const res = await fetch(`/api/admin/access-requests/${requestId}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Delete failed');
+
+      setFeedback({
+        type: 'success',
+        message: `Historical record #${requestId} deleted successfully.`,
+      });
+      setDeleteConfirmId(null);
+      if (selectedRequestId === requestId) {
+        setSelectedRequestId(null);
+      }
+      setSelectedRequestIds((prev) => prev.filter((id) => id !== requestId));
+      await fetchAccessRequests(accessFilter);
+    } catch (err: unknown) {
+      setFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Delete error' });
+    } finally {
+      setSingleActionLoading(false);
+    }
+  };
+
+  const handleBulkApprove = async (targetIds: string[]) => {
+    if (targetIds.length === 0) return;
+    setSubmittingBulk(true);
+    try {
+      const res = await fetch('/api/admin/access-requests/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'APPROVE',
+          requestIds: targetIds,
+          siteIds: bulkSiteIds,
+          reviewReason: bulkReason.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Bulk approval failed');
+
+      const failedCount = data.failedCount || 0;
+      const succeededCount = data.succeededCount || 0;
+
+      if (failedCount === 0) {
+        setFeedback({
+          type: 'success',
+          message: `Bulk approval complete: ${succeededCount} account(s) provisioned successfully.`,
+        });
+      } else {
+        const failureDetails = (data.failed as Array<{ id: string; reason: string }>)
+          .map((f) => `#${f.id}: ${f.reason}`)
+          .join(', ');
+        setFeedback({
+          type: succeededCount > 0 ? 'info' : 'error',
+          message: `${succeededCount} approved, ${failedCount} failed (${failureDetails}).`,
+        });
+      }
+
+      setBulkActionModal(null);
+      setBulkReason('');
+      setSelectedRequestIds([]);
+      await fetchAccessRequests(accessFilter);
+      await fetchUsers();
+    } catch (err: unknown) {
+      setFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Bulk approval error' });
+    } finally {
+      setSubmittingBulk(false);
+    }
+  };
+
+  const handleBulkDeny = async (targetIds: string[]) => {
+    if (targetIds.length === 0) return;
+    setSubmittingBulk(true);
+    try {
+      const res = await fetch('/api/admin/access-requests/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'DENY',
+          requestIds: targetIds,
+          reason: bulkReason.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Bulk denial failed');
+
+      const failedCount = data.failedCount || 0;
+      const succeededCount = data.succeededCount || 0;
+
+      if (failedCount === 0) {
+        setFeedback({
+          type: 'success',
+          message: `Bulk denial complete: ${succeededCount} request(s) denied.`,
+        });
+      } else {
+        const failureDetails = (data.failed as Array<{ id: string; reason: string }>)
+          .map((f) => `#${f.id}: ${f.reason}`)
+          .join(', ');
+        setFeedback({
+          type: succeededCount > 0 ? 'info' : 'error',
+          message: `${succeededCount} denied, ${failedCount} failed (${failureDetails}).`,
+        });
+      }
+
+      setBulkActionModal(null);
+      setBulkReason('');
+      setSelectedRequestIds([]);
+      await fetchAccessRequests(accessFilter);
+    } catch (err: unknown) {
+      setFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Bulk denial error' });
+    } finally {
+      setSubmittingBulk(false);
+    }
+  };
+
+  const handleBulkDeleteHistory = async (targetIds: string[]) => {
+    if (targetIds.length === 0) return;
+    setSubmittingBulk(true);
+    try {
+      const res = await fetch('/api/admin/access-requests/bulk', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestIds: targetIds,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Bulk delete failed');
+
+      setFeedback({
+        type: 'success',
+        message: data.message || `Deleted ${data.deletedCount || 0} historical record(s).`,
+      });
+
+      setBulkActionModal(null);
+      setSelectedRequestIds([]);
+      if (selectedRequestId && targetIds.includes(selectedRequestId)) {
+        setSelectedRequestId(null);
+      }
+      await fetchAccessRequests(accessFilter);
+    } catch (err: unknown) {
+      setFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Bulk delete error' });
+    } finally {
+      setSubmittingBulk(false);
+    }
+  };
+
   // --------------------------------------------------------------------------
   // Authority Badge Helper
   // --------------------------------------------------------------------------
@@ -1087,36 +1421,96 @@ export default function UsersAndAccessPage() {
       {/* -------------------------------------------------------------------- */}
       {/* 1. Header Bar */}
       {/* -------------------------------------------------------------------- */}
-      <div className="bg-white dark:bg-[#18191C] p-4 sm:p-5 rounded-xl border border-slate-900 dark:border-[#3A3D42] shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 block">
-              Identity &amp; Governance
-            </span>
-            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700">
-              ACCESS GOVERNANCE
-            </span>
+      <div className="bg-white dark:bg-[#18191C] p-4 sm:p-5 rounded-xl border border-slate-900 dark:border-[#3A3D42] shadow-sm flex flex-col gap-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 block">
+                Identity &amp; Governance
+              </span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700">
+                ACCESS GOVERNANCE
+              </span>
+            </div>
+            <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
+              USERS &amp; ACCESS
+            </h1>
+            <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+              Enterprise access governance, 5-stage permission evaluation, and canonical site assignments.
+            </p>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
-            USERS &amp; ACCESS
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
-            Enterprise access governance, 5-stage permission evaluation, and canonical site assignments.
-          </p>
+
+          <div className="flex items-center gap-2 self-start md:self-auto">
+            {activeSection === 'USERS' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setUserFormError('');
+                  setCreateModalOpen(true);
+                }}
+                className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] px-4 py-2 bg-slate-900 hover:bg-slate-800 dark:bg-[#1ED760] dark:hover:bg-[#1DB954] active:bg-black dark:active:bg-[#17a34a] text-white dark:text-black text-xs sm:text-sm font-bold rounded-lg shadow-sm border border-slate-900 dark:border-[#1ED760]/30 transition-colors shrink-0 touch-manipulation focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 dark:focus-visible:ring-[#1ED760]"
+              >
+                <UserPlus className="w-4 h-4 mr-1.5 text-emerald-400 dark:text-black shrink-0" />
+                Create User
+              </button>
+            )}
+            {activeSection === 'ACCESS_REQUESTS' && (
+              <button
+                type="button"
+                onClick={() => fetchAccessRequests(accessFilter)}
+                disabled={loadingAccessRequests}
+                className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-800 dark:text-zinc-200 text-xs sm:text-sm font-bold rounded-lg border border-slate-300 dark:border-zinc-700 transition-colors shrink-0 touch-manipulation focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 mr-1.5 ${loadingAccessRequests ? 'animate-spin' : ''}`} />
+                Refresh Requests
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 self-start md:self-auto">
+        {/* Native Category / Section Switcher Tabs (Roles Page Pattern) */}
+        <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800/80 overflow-x-auto custom-scrollbar">
           <button
             type="button"
-            onClick={() => {
-              setUserFormError('');
-              setCreateModalOpen(true);
-            }}
-            className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] px-4 py-2 bg-slate-900 hover:bg-slate-800 dark:bg-[#1ED760] dark:hover:bg-[#1DB954] active:bg-black dark:active:bg-[#17a34a] text-white dark:text-black text-xs sm:text-sm font-bold rounded-lg shadow-sm border border-slate-900 dark:border-[#1ED760]/30 transition-colors shrink-0 touch-manipulation focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 dark:focus-visible:ring-[#1ED760]"
+            onClick={() => setActiveSection('USERS')}
+            className={`inline-flex items-center justify-center min-h-[42px] px-4 py-2 text-xs sm:text-sm font-bold rounded-lg transition-colors border touch-manipulation ${
+              activeSection === 'USERS'
+                ? 'bg-slate-900 text-white dark:bg-[#1ED760] dark:text-[#0A0A0A] border-slate-900 dark:border-[#1ED760] shadow-sm'
+                : 'bg-white dark:bg-[#202225] hover:bg-slate-100 dark:hover:bg-[#2B2D31] text-slate-700 dark:text-[#B5BAC1] border-slate-200 dark:border-[#3A3D42]'
+            }`}
           >
-            <UserPlus className="w-4 h-4 mr-1.5 text-emerald-400 dark:text-black shrink-0" />
-            Create User
+            <Users className="w-4 h-4 mr-2 shrink-0" />
+            USERS
           </button>
+
+          {canAccessRequests && (
+            <button
+              type="button"
+              onClick={() => {
+                fetchAccessRequests();
+                setActiveSection('ACCESS_REQUESTS');
+              }}
+              className={`inline-flex items-center justify-center min-h-[42px] px-4 py-2 text-xs sm:text-sm font-bold rounded-lg transition-colors border touch-manipulation ${
+                activeSection === 'ACCESS_REQUESTS'
+                  ? 'bg-slate-900 text-white dark:bg-[#1ED760] dark:text-[#0A0A0A] border-slate-900 dark:border-[#1ED760] shadow-sm'
+                  : 'bg-white dark:bg-[#202225] hover:bg-slate-100 dark:hover:bg-[#2B2D31] text-slate-700 dark:text-[#B5BAC1] border-slate-200 dark:border-[#3A3D42]'
+              }`}
+            >
+              <UserCheck className="w-4 h-4 mr-2 shrink-0" />
+              ACCESS REQUESTS
+              {pendingAccessCount > 0 && (
+                <span
+                  className={`ml-2 px-1.5 py-0.5 text-[10px] font-black uppercase rounded-full shadow-xs ${
+                    activeSection === 'ACCESS_REQUESTS'
+                      ? 'bg-amber-500 text-white dark:bg-black dark:text-amber-400'
+                      : 'bg-amber-500 text-white dark:bg-amber-400 dark:text-black'
+                  }`}
+                >
+                  {pendingAccessCount}
+                </span>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
@@ -1150,7 +1544,8 @@ export default function UsersAndAccessPage() {
       {/* -------------------------------------------------------------------- */}
       {/* 2. Responsive Main Workspace */}
       {/* -------------------------------------------------------------------- */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+      {activeSection === 'USERS' && (
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
         {/* ================================================================== */}
         {/* LEFT COLUMN: User Directory (md:col-span-5 lg:col-span-4)           */}
         {/* ================================================================== */}
@@ -1535,6 +1930,18 @@ export default function UsersAndAccessPage() {
                         </button>
                       )
                     )}
+                    {selectedUser.authorityTier !== 'KING_MAKER' && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteUser(selectedUser)}
+                        disabled={selectedUser.id === currentUser?.id || isReadOnlyUser || isUserPrime}
+                        className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] px-3 py-1.5 text-xs font-bold text-red-700 dark:text-red-400 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 border border-red-200 dark:border-red-800 rounded-lg transition-colors touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={selectedUser.id === currentUser?.id ? 'Cannot delete self' : 'Permanently delete user'}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -1684,6 +2091,25 @@ export default function UsersAndAccessPage() {
                             )}
                           </div>
                         </div>
+
+                        <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#202225] border border-slate-200 dark:border-zinc-800 sm:col-span-2">
+                          <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 mb-1">
+                            Access Request Notification Eligibility
+                          </span>
+                          <div className="flex items-center justify-between text-xs">
+                            {selectedUser.recoveryEmail ? (
+                              <span className="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 font-bold">
+                                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                                Email Linked ({selectedUser.recoveryEmail}) &bull; Eligible for notification delivery
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 text-amber-700 dark:text-amber-400 font-bold">
+                                <AlertTriangle className="w-4 h-4 shrink-0" />
+                                Email Not Linked &bull; Ineligible for notifications until email is configured
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1794,6 +2220,17 @@ export default function UsersAndAccessPage() {
                                 Activate Account
                               </button>
                             )
+                          )}
+                          {selectedUser.authorityTier !== 'KING_MAKER' && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteUser(selectedUser)}
+                              disabled={selectedUser.id === currentUser?.id || isReadOnlyUser || isUserPrime}
+                              className="self-start min-h-[36px] px-3 py-1.5 text-xs font-bold rounded-lg border border-red-300 dark:border-red-800 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-700 dark:text-red-300 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Delete Account
+                            </button>
                           )}
                         </div>
                       </div>
@@ -1984,7 +2421,7 @@ export default function UsersAndAccessPage() {
                                     <th className="py-2.5 px-3 min-w-[160px]">Feature Area</th>
                                     {MATRIX_ACTIONS.map((action) => (
                                       <th key={action} className="py-2.5 px-2 text-center min-w-[80px]">
-                                        {action}
+                                        {action === 'ACCESS_REQUEST_REVIEW' ? 'Review / Approve' : action}
                                       </th>
                                     ))}
                                   </tr>
@@ -2319,6 +2756,585 @@ export default function UsersAndAccessPage() {
           )}
         </div>
       </div>
+    )}
+
+      {/* -------------------------------------------------------------------- */}
+      {/* 3. Access Request Governance Workspace (Native Roles Pattern)       */}
+      {/* -------------------------------------------------------------------- */}
+      {activeSection === 'ACCESS_REQUESTS' && (() => {
+        const filteredRequests = accessRequests.filter((req) => {
+          if (!accessSearch) return true;
+          const q = accessSearch.toLowerCase();
+          return (
+            req.id.toLowerCase().includes(q) ||
+            req.requesterFullName.toLowerCase().includes(q) ||
+            req.requestedUsername.toLowerCase().includes(q) ||
+            req.requestedEmail.toLowerCase().includes(q)
+          );
+        });
+
+        const activeRequest = accessRequests.find((r) => r.id === selectedRequestId) || null;
+
+        const allFilteredSelected =
+          filteredRequests.length > 0 &&
+          filteredRequests.every((r) => selectedRequestIds.includes(r.id));
+
+        const toggleSelectAll = () => {
+          if (allFilteredSelected) {
+            const filteredSet = new Set(filteredRequests.map((r) => r.id));
+            setSelectedRequestIds((prev) => prev.filter((id) => !filteredSet.has(id)));
+          } else {
+            const currentSet = new Set(selectedRequestIds);
+            for (const r of filteredRequests) {
+              currentSet.add(r.id);
+            }
+            setSelectedRequestIds(Array.from(currentSet));
+          }
+        };
+
+        const toggleSelectRequest = (id: string, e: React.MouseEvent) => {
+          e.stopPropagation();
+          setSelectedRequestIds((prev) =>
+            prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+          );
+        };
+
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+            {/* LEFT COLUMN: Request Queue (md:col-span-5 lg:col-span-5) */}
+            <div
+              className={`md:col-span-5 lg:col-span-5 space-y-4 ${
+                mobileView === 'details' && activeRequest ? 'hidden md:block' : 'block'
+              }`}
+            >
+              <div className="bg-white dark:bg-[#18191C] rounded-xl border border-slate-900 dark:border-[#3A3D42] shadow-sm overflow-hidden">
+                {/* Queue Inverted Header */}
+                <div className="bg-slate-900 dark:bg-[#202225] px-4 sm:px-5 py-2.5 border-b border-slate-900 dark:border-[#3A3D42] flex justify-between items-center gap-2">
+                  <div className="flex items-center space-x-2 min-w-0">
+                    <UserCheck className="w-4 h-4 text-emerald-400 dark:text-[#1ED760] shrink-0" />
+                    <h2 className="text-xs sm:text-sm font-black text-white dark:text-[#F2F3F5] uppercase tracking-wider truncate">
+                      Request Queue
+                    </h2>
+                  </div>
+                  <span className="text-[11px] font-bold bg-slate-800 text-slate-200 border border-slate-700 dark:bg-[#2B2D31] dark:text-[#F2F3F5] dark:border-[#4A4D52] px-2.5 py-0.5 rounded shrink-0">
+                    {filteredRequests.length} {filteredRequests.length === 1 ? 'REQUEST' : 'REQUESTS'}
+                  </span>
+                </div>
+
+                {/* Filter Tabs & Search */}
+                <div className="p-3 sm:p-4 border-b border-slate-200 dark:border-zinc-800 space-y-3 bg-slate-50/50 dark:bg-[#151619]">
+                  {/* Status Tabs */}
+                  <div className="flex items-center gap-1 bg-slate-100 dark:bg-zinc-800/80 p-1 rounded-lg overflow-x-auto custom-scrollbar">
+                    {(['PENDING', 'ALL', 'APPROVED', 'DENIED'] as const).map((tab) => {
+                      const isActive = accessFilter === tab;
+                      return (
+                        <button
+                          key={tab}
+                          type="button"
+                          onClick={() => {
+                            setAccessFilter(tab);
+                            fetchAccessRequests(tab);
+                          }}
+                          className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors whitespace-nowrap touch-manipulation ${
+                            isActive
+                              ? 'bg-white dark:bg-[#202225] text-slate-900 dark:text-white shadow-xs'
+                              : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
+                          }`}
+                        >
+                          {tab === 'PENDING'
+                            ? `Pending (${pendingAccessCount})`
+                            : tab.charAt(0) + tab.slice(1).toLowerCase()}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Search Input */}
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search name, username, email..."
+                      value={accessSearch}
+                      onChange={(e) => setAccessSearch(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1.5 text-xs bg-white dark:bg-[#202225] border border-slate-200 dark:border-zinc-700 rounded-lg text-slate-900 dark:text-white placeholder:text-slate-400"
+                    />
+                  </div>
+                </div>
+
+                {/* Select All & Selection Header */}
+                <div className="px-4 py-2 bg-slate-100/70 dark:bg-zinc-900/60 border-b border-slate-200 dark:border-zinc-800 flex items-center justify-between text-xs text-slate-500 dark:text-zinc-400">
+                  <button
+                    type="button"
+                    onClick={toggleSelectAll}
+                    className="flex items-center gap-1.5 font-bold hover:text-slate-900 dark:hover:text-white transition-colors"
+                  >
+                    {allFilteredSelected ? (
+                      <CheckSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    ) : (
+                      <Square className="w-4 h-4 text-slate-400" />
+                    )}
+                    <span>Select All ({filteredRequests.length})</span>
+                  </button>
+                  <span>
+                    {selectedRequestIds.length > 0
+                      ? `${selectedRequestIds.length} selected`
+                      : `${filteredRequests.length} listed`}
+                  </span>
+                </div>
+
+                {/* Bulk Actions Bar */}
+                {selectedRequestIds.length > 0 && (
+                  <div className="p-2.5 px-4 bg-blue-50 dark:bg-blue-950/80 border-b border-blue-200 dark:border-blue-900/60 flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-xs font-black text-blue-900 dark:text-blue-200">
+                      {selectedRequestIds.length} selected
+                    </span>
+
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {selectedPendingIds.length > 0 && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBulkSiteIds(sites.map((s) => s.id));
+                              setBulkReason('');
+                              setBulkActionModal('APPROVE');
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded shadow-xs"
+                          >
+                            <CheckCircle2 className="w-3 h-3" />
+                            Approve ({selectedPendingIds.length})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBulkReason('');
+                              setBulkActionModal('DENY');
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-rose-700 dark:text-rose-200 bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/60 rounded border border-rose-300 dark:border-rose-800"
+                          >
+                            <XCircle className="w-3 h-3" />
+                            Deny ({selectedPendingIds.length})
+                          </button>
+                        </>
+                      )}
+
+                      {selectedHistoryIds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setBulkActionModal('DELETE')}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-rose-600 hover:text-white hover:bg-rose-600 border border-rose-300 dark:border-rose-800/80 rounded"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          Delete ({selectedHistoryIds.length})
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRequestIds([])}
+                        className="px-2 py-1 text-xs font-bold text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-white"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Cards List */}
+                <div className="p-3 sm:p-4 space-y-2.5 max-h-[calc(100vh-320px)] overflow-y-auto custom-scrollbar">
+                  {loadingAccessRequests ? (
+                    <div className="py-12 flex flex-col items-center justify-center text-slate-500 dark:text-zinc-400">
+                      <Loader2 className="w-6 h-6 animate-spin mb-2" />
+                      <span className="text-xs">Loading requests...</span>
+                    </div>
+                  ) : filteredRequests.length === 0 ? (
+                    <div className="py-12 text-center text-slate-500 dark:text-zinc-400">
+                      <UserCheck className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                      <p className="text-xs font-bold">No access requests found</p>
+                      <p className="text-[11px] mt-1">There are no requests matching current criteria.</p>
+                    </div>
+                  ) : (
+                    filteredRequests.map((req) => {
+                      const isSelected = selectedRequestId === req.id;
+                      const isChecked = selectedRequestIds.includes(req.id);
+
+                      return (
+                        <div
+                          key={req.id}
+                          onClick={() => {
+                            setSelectedRequestId(req.id);
+                            setMobileView('details');
+                          }}
+                          className={`bg-white dark:bg-[#18191C] border rounded-xl p-3 shadow-xs cursor-pointer transition-all ${
+                            isSelected
+                              ? 'border-blue-500 ring-2 ring-blue-500/20 dark:border-blue-400 dark:ring-blue-400/20'
+                              : 'border-slate-200 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700'
+                          }`}
+                        >
+                          <div className="flex items-start gap-2.5">
+                            {/* Card Checkbox */}
+                            <div
+                              onClick={(e) => toggleSelectRequest(req.id, e)}
+                              className="pt-0.5 text-slate-400 hover:text-slate-700 dark:hover:text-white"
+                            >
+                              {isChecked ? (
+                                <CheckSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                              ) : (
+                                <Square className="w-4 h-4" />
+                              )}
+                            </div>
+
+                            <div className="flex-1 min-w-0 space-y-1">
+                              <div className="flex items-center justify-between gap-1 flex-wrap">
+                                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                  <span className="font-mono text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1 py-0.5 rounded border border-blue-200 dark:border-blue-900/60">
+                                    {req.id}
+                                  </span>
+                                  <span className="font-black text-xs text-slate-900 dark:text-white truncate">
+                                    {req.requesterFullName}
+                                  </span>
+                                  <span className="text-[11px] font-mono text-slate-500 dark:text-zinc-400 truncate">
+                                    @{req.requestedUsername}
+                                  </span>
+                                </div>
+
+                                {/* Status Pill */}
+                                {req.status === 'PENDING' ? (
+                                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 shrink-0">
+                                    Pending
+                                  </span>
+                                ) : req.status === 'APPROVED' ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 shrink-0">
+                                    <CheckCircle2 className="w-2.5 h-2.5" />
+                                    Approved
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 shrink-0">
+                                    <XCircle className="w-2.5 h-2.5" />
+                                    Denied
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-zinc-400 flex-wrap">
+                                <span className="truncate max-w-[180px]">{req.requestedEmail}</span>
+                                <span>•</span>
+                                <span className="font-medium text-slate-700 dark:text-zinc-300">
+                                  {req.requestedRoleName || req.requestedRoleId}
+                                </span>
+                                <span>•</span>
+                                <span>{new Date(req.createdAt).toLocaleDateString()}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* RIGHT COLUMN: Request Details & Inline Actions (md:col-span-7 lg:col-span-7) */}
+            <div
+              className={`md:col-span-7 lg:col-span-7 space-y-4 ${
+                mobileView === 'list' && !activeRequest ? 'hidden md:block' : 'block'
+              }`}
+            >
+              {activeRequest ? (
+                <div className="bg-white dark:bg-[#18191C] rounded-xl border border-slate-900 dark:border-[#3A3D42] shadow-sm overflow-hidden">
+                  {/* Inverted Header */}
+                  <div className="bg-slate-900 dark:bg-[#202225] px-4 sm:px-5 py-2.5 border-b border-slate-900 dark:border-[#3A3D42] flex justify-between items-center gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMobileView('list');
+                          setSelectedRequestId(null);
+                        }}
+                        className="md:hidden p-1 text-slate-300 hover:text-white rounded"
+                      >
+                        <ArrowLeft className="w-4 h-4" />
+                      </button>
+                      <UserCheck className="w-4 h-4 text-emerald-400 dark:text-[#1ED760] shrink-0" />
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-mono text-xs font-bold text-emerald-400 bg-slate-800 dark:bg-[#2B2D31] px-1.5 py-0.5 rounded border border-slate-700 dark:border-[#4A4D52]">
+                          {activeRequest.id}
+                        </span>
+                        <h2 className="text-xs sm:text-sm font-black text-white dark:text-[#F2F3F5] uppercase tracking-wider truncate">
+                          {activeRequest.requesterFullName}
+                        </h2>
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-bold bg-slate-800 text-slate-200 border border-slate-700 dark:bg-[#2B2D31] dark:text-[#F2F3F5] dark:border-[#4A4D52] px-2.5 py-0.5 rounded shrink-0">
+                      {activeRequest.status}
+                    </span>
+                  </div>
+
+                  {/* Body Content */}
+                  <div className="p-4 sm:p-5 space-y-5">
+                    {/* Identity Details Card */}
+                    <div className="bg-slate-50 dark:bg-[#202225] border border-slate-200 dark:border-[#3A3D42] rounded-xl p-3.5 space-y-2 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500 dark:text-zinc-400 font-medium">Username:</span>
+                        <span className="font-mono font-bold text-slate-900 dark:text-white">
+                          @{activeRequest.requestedUsername}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500 dark:text-zinc-400 font-medium">Email:</span>
+                        <span className="font-mono text-slate-900 dark:text-white truncate max-w-[240px]">
+                          {activeRequest.requestedEmail}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500 dark:text-zinc-400 font-medium">Requested Role:</span>
+                        <span className="font-bold text-slate-900 dark:text-white">
+                          {activeRequest.requestedRoleName || activeRequest.requestedRoleId}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500 dark:text-zinc-400 font-medium">Submitted:</span>
+                        <span className="text-slate-700 dark:text-zinc-300">
+                          {new Date(activeRequest.createdAt).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Pending Actions: Inline Approval & Denial */}
+                    {activeRequest.status === 'PENDING' ? (
+                      <div className="space-y-4">
+                        {/* Inline Approval Card */}
+                        <div className="p-4 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50 rounded-xl space-y-3.5">
+                          <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-black text-xs uppercase tracking-wider">
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>Assign Project Sites &amp; Approve</span>
+                          </div>
+
+                          {/* Sites selection */}
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-bold text-slate-800 dark:text-zinc-200">
+                                Assigned Project Sites
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (singleSiteIds.length === sites.length) {
+                                    setSingleSiteIds([]);
+                                  } else {
+                                    setSingleSiteIds(sites.map((s) => s.id));
+                                  }
+                                }}
+                                className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                              >
+                                {singleSiteIds.length === sites.length ? 'Clear All' : 'Select All Sites'}
+                              </button>
+                            </div>
+
+                            <div className="max-h-36 overflow-y-auto border border-slate-200 dark:border-zinc-800 bg-white dark:bg-[#18191C] rounded-lg p-2 space-y-1 custom-scrollbar">
+                              {sites.map((site) => {
+                                const checked = singleSiteIds.includes(site.id);
+                                return (
+                                  <label
+                                    key={site.id}
+                                    className="flex items-center gap-2 p-1.5 hover:bg-slate-50 dark:hover:bg-zinc-800/60 rounded cursor-pointer text-xs"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => {
+                                        if (checked) {
+                                          setSingleSiteIds((prev) => prev.filter((id) => id !== site.id));
+                                        } else {
+                                          setSingleSiteIds((prev) => [...prev, site.id]);
+                                        }
+                                      }}
+                                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    <span className="font-medium text-slate-800 dark:text-zinc-200">
+                                      {site.name} {site.code ? `(${site.code})` : ''}
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Approval note */}
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
+                              Approval Note (Optional)
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Identity verified on site"
+                              value={singleReason}
+                              onChange={(e) => setSingleReason(e.target.value)}
+                              className="w-full py-1.5 px-3 bg-white dark:bg-[#18191C] border border-slate-200 dark:border-zinc-700 rounded-lg text-xs text-slate-900 dark:text-white"
+                            />
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleInlineApprove(activeRequest)}
+                            disabled={singleActionLoading}
+                            className="w-full min-h-[44px] px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-lg inline-flex items-center justify-center gap-1.5 shadow-sm transition-colors disabled:opacity-50 touch-manipulation"
+                          >
+                            {singleActionLoading ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                Provisioning User Account...
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 className="w-4 h-4" />
+                                Approve &amp; Provision User
+                              </>
+                            )}
+                          </button>
+                        </div>
+
+                        {/* Inline Denial Card */}
+                        <div className="p-4 bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/50 rounded-xl space-y-3.5">
+                          <div className="flex items-center gap-2 text-rose-800 dark:text-rose-300 font-black text-xs uppercase tracking-wider">
+                            <XCircle className="w-4 h-4" />
+                            <span>Deny Access Request</span>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
+                              Reason for Denial (Optional)
+                            </label>
+                            <textarea
+                              rows={2}
+                              placeholder="Explain why access is denied..."
+                              value={singleReason}
+                              onChange={(e) => setSingleReason(e.target.value)}
+                              className="w-full py-1.5 px-3 bg-white dark:bg-[#18191C] border border-slate-200 dark:border-zinc-700 rounded-lg text-xs text-slate-900 dark:text-white resize-none"
+                            />
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleInlineDeny(activeRequest)}
+                            disabled={singleActionLoading}
+                            className="w-full min-h-[44px] px-4 py-2 text-xs font-bold text-rose-700 dark:text-rose-200 bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/60 dark:hover:bg-rose-900/80 border border-rose-300 dark:border-rose-800 rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 touch-manipulation"
+                          >
+                            {singleActionLoading ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                Denying Request...
+                              </>
+                            ) : (
+                              <>
+                                <XCircle className="w-4 h-4" />
+                                Deny Access Request
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Historical Review Audit & Safe Purge */
+                      <div className="space-y-4">
+                        <div className="bg-slate-50 dark:bg-[#202225] border border-slate-200 dark:border-[#3A3D42] rounded-xl p-4 space-y-2.5 text-xs">
+                          <div className="font-bold text-slate-800 dark:text-zinc-200">
+                            Review Audit Details
+                          </div>
+                          {activeRequest.reviewedAt && (
+                            <div className="flex justify-between">
+                              <span className="text-slate-500 dark:text-zinc-400">Reviewed At:</span>
+                              <span>{new Date(activeRequest.reviewedAt).toLocaleString()}</span>
+                            </div>
+                          )}
+                          {activeRequest.reviewedBy && (
+                            <div className="flex justify-between">
+                              <span className="text-slate-500 dark:text-zinc-400">Reviewer ID:</span>
+                              <span className="font-mono">{activeRequest.reviewedBy}</span>
+                            </div>
+                          )}
+                          {activeRequest.reviewReason && (
+                            <div className="pt-2 border-t border-slate-200 dark:border-zinc-800">
+                              <span className="text-slate-500 dark:text-zinc-400 block mb-0.5">Approval Note:</span>
+                              <p className="text-emerald-700 dark:text-emerald-300 font-medium">
+                                {activeRequest.reviewReason}
+                              </p>
+                            </div>
+                          )}
+                          {activeRequest.denialReason && (
+                            <div className="pt-2 border-t border-slate-200 dark:border-zinc-800">
+                              <span className="text-slate-500 dark:text-zinc-400 block mb-0.5">Denial Reason:</span>
+                              <p className="text-rose-700 dark:text-rose-300 font-medium">
+                                {activeRequest.denialReason}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* History Deletion Button */}
+                        <div className="pt-2 border-t border-slate-200 dark:border-zinc-800">
+                          {deleteConfirmId === activeRequest.id ? (
+                            <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-xl space-y-2 text-xs">
+                              <p className="font-bold text-rose-800 dark:text-rose-300">
+                                Delete this history record?
+                              </p>
+                              <p className="text-slate-600 dark:text-zinc-400 text-[11px]">
+                                This will remove request record #{activeRequest.id}. User accounts, site assignments, and security audit logs are strictly preserved.
+                              </p>
+                              <div className="flex items-center gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setDeleteConfirmId(null)}
+                                  className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 font-bold"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleInlineDelete(activeRequest.id)}
+                                  disabled={singleActionLoading}
+                                  className="px-3 py-1.5 rounded-lg bg-rose-600 text-white font-bold hover:bg-rose-700 inline-flex items-center gap-1"
+                                >
+                                  {singleActionLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                  Confirm Delete
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setDeleteConfirmId(activeRequest.id)}
+                              className="w-full min-h-[40px] px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg border border-rose-200 dark:border-rose-900/60 transition-colors inline-flex items-center justify-center gap-1.5 touch-manipulation"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Delete History Record
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* Empty state when no request is selected */
+                <div className="bg-white dark:bg-[#18191C] rounded-xl border border-slate-900 dark:border-[#3A3D42] shadow-sm p-8 text-center text-slate-500 dark:text-zinc-400">
+                  <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center mx-auto mb-3">
+                    <UserCheck className="w-6 h-6 opacity-40 text-slate-600 dark:text-zinc-400" />
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-800 dark:text-zinc-200">
+                    Select an Access Request
+                  </h4>
+                  <p className="text-xs max-w-xs mx-auto mt-1 leading-relaxed">
+                    Choose any access request from the queue to review profile claims, configure project site authorizations, or make decisions.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
 
 
@@ -2816,6 +3832,335 @@ export default function UsersAndAccessPage() {
                 {confirmModal.confirmLabel}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* MODAL 6: Dedicated Protected Delete User Modal                       */}
+      {/* ==================================================================== */}
+      {deleteModalUser && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#18191C] border border-slate-900 dark:border-[#3A3D42] rounded-xl shadow-2xl max-w-md w-full p-5 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base font-black text-slate-900 dark:text-white">
+                  Delete User Account
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+                  Confirm permanent removal of account credentials and authority.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteModalUser(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white min-h-[44px] min-w-[44px] inline-flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Target User Details Summary */}
+            <div className="bg-slate-50 dark:bg-[#202225] border border-slate-200 dark:border-zinc-800 rounded-lg p-3.5 space-y-2 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 dark:text-zinc-400 font-medium">Full Name:</span>
+                <span className="font-bold text-slate-900 dark:text-white">{deleteModalUser.fullName}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 dark:text-zinc-400 font-medium">Username:</span>
+                <span className="font-mono font-bold text-slate-900 dark:text-white">@{deleteModalUser.username}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 dark:text-zinc-400 font-medium">Role / Tier:</span>
+                <span className="font-semibold text-slate-900 dark:text-white">
+                  {deleteModalUser.role} ({deleteModalUser.authorityTier || 'STANDARD'})
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 dark:text-zinc-400 font-medium">Status:</span>
+                <span
+                  className={`font-bold px-1.5 py-0.5 rounded text-[10px] ${
+                    deleteModalUser.isActive
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
+                      : 'bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300'
+                  }`}
+                >
+                  {deleteModalUser.isActive ? 'Active' : 'Deactivated'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 dark:text-zinc-400 font-medium">Site Scope:</span>
+                <span className="font-medium text-slate-800 dark:text-zinc-200">
+                  {deleteModalUser.role === 'ADMIN'
+                    ? 'ALL SITES (Global)'
+                    : deleteModalUser.assignedSiteIds && deleteModalUser.assignedSiteIds.length > 0
+                    ? `${deleteModalUser.assignedSiteIds.length} Site(s) Assigned`
+                    : 'NO SITE ACCESS'}
+                </span>
+              </div>
+            </div>
+
+            {/* Audit & Data Protection Notice */}
+            <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs space-y-1.5">
+              <div className="font-bold flex items-center gap-1.5">
+                <Shield className="w-3.5 h-3.5 shrink-0" />
+                Audit Trail &amp; Ledger Protection
+              </div>
+              <p className="text-[11px] leading-relaxed">
+                Deleting this account immediately invalidates all active sessions and revokes login credentials. Historical attendance records, financial ledger transactions, and audit entries authored by @{deleteModalUser.username} will be preserved with 100% data integrity.
+              </p>
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteModalUser(null)}
+                disabled={deletingUser}
+                className="min-h-[44px] px-4 py-2 text-xs font-bold text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteUser}
+                disabled={deletingUser}
+                className="min-h-[44px] px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 rounded-lg transition-colors inline-flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {deletingUser ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Deleting Account...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Permanently Delete User
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* BULK ACTION MODAL                                                    */}
+      {/* ==================================================================== */}
+      {bulkActionModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#18191C] border border-slate-900 dark:border-[#3A3D42] rounded-xl shadow-2xl max-w-lg w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white">
+                  {bulkActionModal === 'APPROVE'
+                    ? `Bulk Approve (${selectedPendingIds.length}) Requests`
+                    : bulkActionModal === 'DENY'
+                    ? `Bulk Deny (${selectedPendingIds.length}) Requests`
+                    : `Delete (${selectedHistoryIds.length}) Historical Records`}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+                  {bulkActionModal === 'APPROVE'
+                    ? 'Provision active credentials and configure project sites for all selected pending requests.'
+                    : bulkActionModal === 'DENY'
+                    ? 'Reject the selected pending requests with an optional consolidated denial reason.'
+                    : 'Safely purge historical registration claims. Provisioned user accounts, assignments, and audit logs remain intact.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBulkActionModal(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white min-h-[36px] min-w-[36px] inline-flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* BULK APPROVE BODY */}
+            {bulkActionModal === 'APPROVE' && (
+              <div className="space-y-4 text-xs">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-slate-700 dark:text-zinc-300">
+                      Assign Project Sites (Applied to all {selectedPendingIds.length} users)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (bulkSiteIds.length === sites.length) {
+                          setBulkSiteIds([]);
+                        } else {
+                          setBulkSiteIds(sites.map((s) => s.id));
+                        }
+                      }}
+                      className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      {bulkSiteIds.length === sites.length ? 'Clear All' : 'Select All Sites'}
+                    </button>
+                  </div>
+
+                  <div className="max-h-40 overflow-y-auto border border-slate-200 dark:border-zinc-800 rounded-lg p-2.5 space-y-1.5 custom-scrollbar">
+                    {sites.map((site) => {
+                      const isChecked = bulkSiteIds.includes(site.id);
+                      return (
+                        <label
+                          key={site.id}
+                          className="flex items-center gap-2 p-1.5 hover:bg-slate-50 dark:hover:bg-zinc-800/60 rounded cursor-pointer text-xs"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              if (isChecked) {
+                                setBulkSiteIds((prev) => prev.filter((id) => id !== site.id));
+                              } else {
+                                setBulkSiteIds((prev) => [...prev, site.id]);
+                              }
+                            }}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="font-medium text-slate-800 dark:text-zinc-200">
+                            {site.name} {site.code ? `(${site.code})` : ''}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-700 dark:text-zinc-300">
+                    Batch Approval Note (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Bulk authorized via governance committee"
+                    value={bulkReason}
+                    onChange={(e) => setBulkReason(e.target.value)}
+                    className="w-full py-2 px-3 bg-slate-50 dark:bg-[#202225] border border-slate-200 dark:border-zinc-700 rounded-lg text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div className="pt-2 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBulkActionModal(null)}
+                    disabled={submittingBulk}
+                    className="min-h-[44px] px-4 py-2 font-bold text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBulkApprove(selectedPendingIds)}
+                    disabled={submittingBulk}
+                    className="min-h-[44px] px-4 py-2 font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg inline-flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                  >
+                    {submittingBulk ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Bulk Provisioning...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Confirm Bulk Approval ({selectedPendingIds.length})
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* BULK DENY BODY */}
+            {bulkActionModal === 'DENY' && (
+              <div className="space-y-4 text-xs">
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-700 dark:text-zinc-300">
+                    Batch Denial Reason (Optional)
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Explain why these requests are denied..."
+                    value={bulkReason}
+                    onChange={(e) => setBulkReason(e.target.value)}
+                    className="w-full py-2 px-3 bg-slate-50 dark:bg-[#202225] border border-slate-200 dark:border-zinc-700 rounded-lg text-slate-900 dark:text-white resize-none"
+                  />
+                </div>
+
+                <div className="pt-2 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBulkActionModal(null)}
+                    disabled={submittingBulk}
+                    className="min-h-[44px] px-4 py-2 font-bold text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBulkDeny(selectedPendingIds)}
+                    disabled={submittingBulk}
+                    className="min-h-[44px] px-4 py-2 font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg inline-flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                  >
+                    {submittingBulk ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Bulk Denying...
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="w-3.5 h-3.5" />
+                        Confirm Bulk Denial ({selectedPendingIds.length})
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* BULK DELETE BODY */}
+            {bulkActionModal === 'DELETE' && (
+              <div className="space-y-4 text-xs">
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-xl space-y-1.5 text-amber-900 dark:text-amber-200">
+                  <p className="font-bold">Permanent History Purge</p>
+                  <p className="text-[11px] leading-relaxed">
+                    You are about to delete {selectedHistoryIds.length} historical request claim(s). This action cannot be undone. User accounts, site memberships, and system audit logs are preserved.
+                  </p>
+                </div>
+
+                <div className="pt-2 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBulkActionModal(null)}
+                    disabled={submittingBulk}
+                    className="min-h-[44px] px-4 py-2 font-bold text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBulkDeleteHistory(selectedHistoryIds)}
+                    disabled={submittingBulk}
+                    className="min-h-[44px] px-4 py-2 font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg inline-flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                  >
+                    {submittingBulk ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Deleting...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Confirm Delete ({selectedHistoryIds.length}) Records
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

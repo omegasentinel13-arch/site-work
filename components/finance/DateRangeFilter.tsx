@@ -66,6 +66,16 @@ export function DateRangeFilter({
     onApplyDateRange(draftStartDate, draftEndDate);
   };
 
+  const handleTypeChange = (newType: 'ALL' | 'CREDIT' | 'DEBIT') => {
+    onChangeType(newType);
+    // Automatic category reset if existing selection is incompatible
+    if (newType === 'CREDIT' && values.category !== 'ALL' && values.category !== 'CASH_INFLOW') {
+      onChangeCategory('ALL');
+    } else if (newType === 'DEBIT' && values.category === 'CASH_INFLOW') {
+      onChangeCategory('ALL');
+    }
+  };
+
   const hasActiveFilters =
     values.type !== 'ALL' ||
     values.category !== 'ALL' ||
@@ -174,8 +184,8 @@ export function DateRangeFilter({
             type="text"
             value={values.searchQuery}
             onChange={(e) => onChangeSearch(e.target.value)}
-            placeholder="Search notes, categories, roles, investors..."
-            aria-label="Search ledger transactions"
+            placeholder="Search text, amount (475000, 50, +5000, -5000), date..."
+            aria-label="Search ledger transactions by text, amount, or date"
             className="w-full min-h-[44px] bg-slate-50 dark:bg-[#111214] border border-slate-900 dark:border-[#3A3D42] text-[#0F172A] dark:text-[#F2F3F5] rounded-xl pl-9 pr-8 text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-slate-900 dark:focus:ring-[#1ED760] focus:outline-none input-no-zoom touch-action-manipulation"
           />
           {values.searchQuery && (
@@ -194,7 +204,7 @@ export function DateRangeFilter({
         <div className="sm:col-span-3">
           <select
             value={values.type}
-            onChange={(e) => onChangeType(e.target.value as any)}
+            onChange={(e) => handleTypeChange(e.target.value as any)}
             aria-label="Filter by transaction type"
             className="w-full min-h-[44px] bg-slate-50 dark:bg-[#111214] border border-slate-900 dark:border-[#3A3D42] text-[#0F172A] dark:text-[#F2F3F5] rounded-xl px-3 text-xs sm:text-sm font-bold focus:ring-2 focus:ring-slate-900 dark:focus:ring-[#1ED760] focus:outline-none input-no-zoom touch-action-manipulation"
           >
@@ -204,7 +214,7 @@ export function DateRangeFilter({
           </select>
         </div>
 
-        {/* Category Filter */}
+        {/* Category Filter (Dependent on Type) */}
         <div className="sm:col-span-3">
           <select
             value={values.category}
@@ -213,10 +223,16 @@ export function DateRangeFilter({
             className="w-full min-h-[44px] bg-slate-50 dark:bg-[#111214] border border-slate-900 dark:border-[#3A3D42] text-[#0F172A] dark:text-[#F2F3F5] rounded-xl px-3 text-xs sm:text-sm font-bold focus:ring-2 focus:ring-slate-900 dark:focus:ring-[#1ED760] focus:outline-none input-no-zoom touch-action-manipulation"
           >
             <option value="ALL">All Categories</option>
-            <option value="CASH_INFLOW">Investor Credits</option>
-            <option value="SUPPLIES">Supplies / Materials</option>
-            <option value="SALARY">Salary / Wages</option>
-            <option value="SPECIAL_WORKER_TASK">Special Task (Legacy)</option>
+            {values.type !== 'DEBIT' && (
+              <option value="CASH_INFLOW">Investor Credits</option>
+            )}
+            {values.type !== 'CREDIT' && (
+              <>
+                <option value="SUPPLIES">Supplies / Materials</option>
+                <option value="SALARY">Salary / Wages</option>
+                <option value="SPECIAL_WORKER_TASK">Special Task (Legacy)</option>
+              </>
+            )}
           </select>
         </div>
 

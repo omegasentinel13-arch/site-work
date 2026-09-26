@@ -4,6 +4,9 @@ import type { NextRequest } from 'next/server';
 // Known non-site top-level path segments
 const NON_SITE_PREFIXES = new Set([
   'login',
+  'request-access',
+  'signup',
+  'forgot-password',
   'api',
   '_next',
   'attendance',
@@ -32,8 +35,13 @@ export function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-current-path', currentPath);
 
-  // If visiting /login, pass through without rewrite
-  if (pathname.startsWith('/login')) {
+  // If visiting public auth routes (/login, /request-access, /forgot-password), pass through without rewrite
+  if (
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/request-access') ||
+    pathname.startsWith('/signup') ||
+    pathname.startsWith('/forgot-password')
+  ) {
     const response = NextResponse.next({
       request: {
         headers: requestHeaders,

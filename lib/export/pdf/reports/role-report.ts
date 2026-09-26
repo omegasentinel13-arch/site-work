@@ -12,6 +12,8 @@ export interface RoleReportData {
   categoryName: string;
   records: AttendanceDbRecord[];
   isAllRoles?: boolean;
+  roleNames?: string[];
+  isMultiRole?: boolean;
 }
 
 /**
@@ -24,6 +26,7 @@ export function generateRoleReportPDF(
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const startY = drawDocumentHeader(doc, meta, 'portrait');
   const isAll = !!data.isAllRoles;
+  const isMulti = !!data.isMultiRole || (Array.isArray(data.roleNames) && data.roleNames.length > 1);
 
   const totalFull = data.records.reduce((sum, r) => sum + r.full_day_count, 0);
   const totalHalf = data.records.reduce((sum, r) => sum + r.half_day_count, 0);
@@ -43,6 +46,8 @@ export function generateRoleReportPDF(
   doc.setTextColor(...PDF_THEME.colors.primary);
   const headerTitle = isAll
     ? 'All Workforce Roles & Deployment'
+    : isMulti && data.roleNames && data.roleNames.length > 0
+    ? `Roles: ${data.roleNames.join(', ')}`
     : `Role: ${data.roleName}   (Category: ${data.categoryName})`;
   doc.text(headerTitle, PDF_THEME.margins.left + 4, startY + 5.5);
 
@@ -57,7 +62,7 @@ export function generateRoleReportPDF(
     renderEmptyState(
       doc,
       startY + boxHeight + 4,
-      isAll ? 'No workforce deployment recorded for this period.' : 'Selected role had zero deployment days in this period.',
+      isAll ? 'No workforce deployment recorded for this period.' : 'Selected role(s) had zero deployment days in this period.',
       'portrait'
     );
     applyDocumentFooters(doc, meta, 'portrait');
@@ -74,7 +79,7 @@ export function generateRoleReportPDF(
   const tableRows: RowInput[] = sorted.map((r) => {
     const d = new Date(r.date);
     const dayName = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-    const col2 = isAll ? `${r.role_name || 'Role'} (${r.category_name || 'General'})` : dayName;
+    const col2 = (isAll || isMulti) ? `${r.role_name || 'Role'} (${r.category_name || 'General'})` : dayName;
     return [
       r.date,
       col2,
@@ -99,14 +104,14 @@ export function generateRoleReportPDF(
     ...tableOptions,
     head: [[
       'Date (ISO)',
-      isAll ? 'Role & Category' : 'Day',
+      (isAll || isMulti) ? 'Role & Category' : 'Day',
       'Full Day',
       'Half Day',
       'Worker-Days',
       'Wages Paid',
     ]],
     body: tableRows,
-    columnStyles: isAll
+    columnStyles: (isAll || isMulti)
       ? {
           0: { cellWidth: 26 },
           1: { cellWidth: 56 },
