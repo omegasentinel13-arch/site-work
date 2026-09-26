@@ -1,10 +1,12 @@
 import { TransactionalEmailProvider } from './types';
+import { GmailApiEmailProvider } from './gmail-provider';
 import { ResendEmailProvider } from './resend-provider';
 import { MockTransactionalEmailProvider } from './mock-provider';
 import { SmtpEmailProvider } from './smtp-provider';
 import { DevCapturedEmailProvider } from './dev-captured-provider';
 
 export * from './types';
+export * from './gmail-provider';
 export * from './resend-provider';
 export * from './mock-provider';
 export * from './smtp-provider';
@@ -28,8 +30,21 @@ export function getTransactionalEmailProvider(): TransactionalEmailProvider {
     return new MockTransactionalEmailProvider();
   }
 
-  // Production or explicitly requested Resend
-  if (configuredProvider === 'resend' || process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT) {
+  // Explicit Gmail REST API provider
+  if (configuredProvider === 'gmail') {
+    return new GmailApiEmailProvider();
+  }
+
+  // Explicit Resend provider
+  if (configuredProvider === 'resend') {
+    return new ResendEmailProvider();
+  }
+
+  // Production default fallback: If GMAIL_REFRESH_TOKEN is present, prefer Gmail; otherwise Resend
+  if (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT) {
+    if (process.env.GMAIL_REFRESH_TOKEN) {
+      return new GmailApiEmailProvider();
+    }
     return new ResendEmailProvider();
   }
 

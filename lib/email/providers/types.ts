@@ -11,7 +11,7 @@ export interface EmailMessage {
 
 export interface DeliveryResult {
   success: boolean;
-  provider: 'resend' | 'mock' | 'smtp' | 'dev_captured';
+  provider: 'gmail' | 'resend' | 'mock' | 'smtp' | 'dev_captured';
   deliveryStatus: 'SENT' | 'FAILED' | 'DEV_CAPTURED';
   providerMessageId?: string;
   accepted?: string[];

@@ -7,6 +7,8 @@ const NON_SITE_PREFIXES = new Set([
   'request-access',
   'signup',
   'forgot-password',
+  'privacy',
+  'terms',
   'api',
   '_next',
   'attendance',
@@ -35,12 +37,14 @@ export function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-current-path', currentPath);
 
-  // If visiting public auth routes (/login, /request-access, /forgot-password), pass through without rewrite
+  // If visiting public auth/legal routes, pass through without rewrite or auth block
   if (
     pathname.startsWith('/login') ||
     pathname.startsWith('/request-access') ||
     pathname.startsWith('/signup') ||
-    pathname.startsWith('/forgot-password')
+    pathname.startsWith('/forgot-password') ||
+    pathname === '/privacy' ||
+    pathname === '/terms'
   ) {
     const response = NextResponse.next({
       request: {
