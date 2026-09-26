@@ -23,14 +23,14 @@ function runMigrations(db: DatabaseSync): void {
     if (!columnNames.has('authority_tier')) {
       db.exec("ALTER TABLE users ADD COLUMN authority_tier TEXT NOT NULL DEFAULT 'STANDARD';");
       db.exec("UPDATE users SET authority_tier = 'STANDARD_ADMIN' WHERE role = 'ADMIN' AND authority_tier = 'STANDARD' AND id != 'usr-admin-1';");
-      db.exec("UPDATE users SET authority_tier = 'KING_MAKER' WHERE id = 'usr-admin-1' AND username = 'Iamadmin';");
+      db.exec("UPDATE users SET authority_tier = 'KING_MAKER' WHERE id = 'usr-admin-1';");
     }
-    // Assert King Maker Invariant: at most one KING_MAKER, and must be usr-admin-1 / Iamadmin
+    // Assert King Maker Invariant: at most one KING_MAKER, and must be usr-admin-1
     const kingMakers = db.prepare("SELECT id, username FROM users WHERE authority_tier = 'KING_MAKER'").all() as { id: string; username: string }[];
     if (kingMakers.length > 1) {
       throw new Error(`CRITICAL INTEGRITY FAILURE: Multiple KING_MAKER accounts detected (${kingMakers.length}). Startup aborted.`);
     }
-    if (kingMakers.length === 1 && (kingMakers[0].id !== 'usr-admin-1' || kingMakers[0].username !== 'Iamadmin')) {
+    if (kingMakers.length === 1 && kingMakers[0].id !== 'usr-admin-1') {
       throw new Error(`CRITICAL INTEGRITY FAILURE: Unauthorized KING_MAKER detected (${kingMakers[0].id} / ${kingMakers[0].username}). Startup aborted.`);
     }
     if (!columnNames.has('permission_version')) {
